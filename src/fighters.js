@@ -141,28 +141,33 @@ export class Fighter {
 
   render() {
     const s = this.sprite;
-    // Walk cycle on side frames
-    let frame = SIDE_A;
-    if (this.moving) {
-      this.walkT += this.scene.frameDt;
-      frame = Math.floor(this.walkT / 130) % 2 === 0 ? SIDE_A : SIDE_B;
+    if (this.moving) this.walkT += this.scene.frameDt;
+    else this.walkT = 0;
+    const drawn = !!this.frameFor; // has a hand-drawn action sheet
+
+    let frame;
+    let angle = 0;
+    if (drawn) {
+      frame = this.frameFor();
+    } else {
+      // Follower sprite only: walk cycle on side frames, rotate to fake knockdowns
+      frame = this.moving && Math.floor(this.walkT / 130) % 2 ? SIDE_B : SIDE_A;
+      if (this.state === 'launched') angle = -this.facing * 35;
+      if (this.state === 'down' || this.state === 'dead') angle = -this.facing * 90;
+      if (this.state === 'getup') angle = -this.facing * 45;
     }
     s.setFrame(frame);
-    s.setFlipX(this.facing > 0);
-    s.setPosition(Math.round(this.x + this.offsetX), Math.round(this.y - this.z));
-    s.setDepth(10 + this.y);
-
-    // Pose for knockdowns
-    let angle = 0;
-    if (this.state === 'launched') angle = -this.facing * 35;
-    if (this.state === 'down' || this.state === 'dead') angle = -this.facing * 90;
-    if (this.state === 'getup') angle = -this.facing * 45;
     s.setAngle(angle);
+    s.setFlipX(this.facing > 0);
+    // Drawn sheets carry their own lunges, so the code-driven nudge is only for follower sprites
+    const ox = drawn ? 0 : this.offsetX;
+    s.setPosition(Math.round(this.x + ox), Math.round(this.y - this.z));
+    s.setDepth(10 + this.y);
 
     // Tints: white flash on hit, blue on block
     if (this.flash > 0) s.setTintFill(0xffffff);
     else if (this.blockFlash > 0) s.setTintFill(0x9fc4ff);
-    else if (this.state === 'block') s.setTint(0x9fc4ff);
+    else if (this.state === 'block' && !drawn) s.setTint(0x9fc4ff);
     else if (this.telegraph) s.setTint(Math.floor(this.t / 60) % 2 ? 0xffe070 : 0xffffff);
     else s.clearTint();
 
@@ -202,7 +207,7 @@ export class Fighter {
 // ---------------------------------------------------------------------------
 export class Player extends Fighter {
   constructor(scene, x, y) {
-    super(scene, 'treecko', x, y, PLAYER.hp, 'TREECKO');
+    super(scene, 'treecko_actions', x, y, PLAYER.hp, 'TREECKO');
     this.energy = 0;
     this.queued = null;
   }
@@ -325,6 +330,48 @@ export class Player extends Fighter {
     const cam = this.scene.camX;
     this.x = clamp(this.x, Math.max(10, cam + 10), Math.min(WORLD_W - 10, cam + 310));
     this.y = clamp(this.y, GROUND_TOP, GROUND_BOTTOM);
+  }
+
+  // Pick a frame from the hand-drawn sheet (art/templates/README.md lists the rows)
+  frameFor() {
+    const COLS = 4;
+    const f = (row, col) => row * COLS + col;
+    const now = this.scene.time.now;
+    switch (this.state) {
+      case 'idle':
+      case 'walk':
+        if (this.moving) return f(1, Math.floor(this.walkT / 130) % 2);
+        return f(0, Math.floor(now / 400) % 2);
+      case 'attack': {
+        const a = this.atk;
+        const row = { light1: 2, light2: 3, light3: 4, heavy: 5 }[this.atkName];
+        if (this.atkName === 'heavy') {
+          if (this.t < a.startup / 2) return f(row, 0);
+          if (this.t < a.startup) return f(row, 1);
+          if (this.t < a.startup + a.active) return f(row, 2);
+          return f(row, 3);
+        }
+        if (this.t < a.startup) return f(row, 0);
+        if (this.t < a.startup + a.active) return f(row, 1);
+        return f(row, 2);
+      }
+      case 'jump':
+        if (this.airAtk === 'jumpLight') return f(7, 0);
+        if (this.airAtk === 'jumpHeavy') return f(8, 0);
+        return f(6, this.vz > 0 ? 0 : 1);
+      case 'land':
+        return f(6, 1);
+      case 'special':
+        if (!this.seedsFired) return f(9, 0);
+        return f(9, this.seedsFired % 2 ? 1 : 2);
+      case 'block': return f(10, 0);
+      case 'hurt': return f(11, 0);
+      case 'launched': return f(12, 0);
+      case 'down':
+      case 'dead': return f(13, 0);
+      case 'getup': return f(14, 0);
+      default: return f(0, 0);
+    }
   }
 
   gainEnergy(n) {
