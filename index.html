@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#000000" />
+  <title>Hoenn Rescue</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./src/style.css" />
+</head>
+<body>
+  <div id="game"></div>
+
+  <!-- On-screen controls: only shown on touch devices -->
+  <div id="touch" aria-hidden="true">
+    <div id="dpad"><div id="dpad-knob"></div></div>
+    <div id="buttons">
+      <button data-btn="block" class="btn small">BLK</button>
+      <button data-btn="special" class="btn">SP</button>
+      <button data-btn="heavy" class="btn">H</button>
+      <button data-btn="jump" class="btn">J</button>
+      <button data-btn="light" class="btn">L</button>
+    </div>
+  </div>
+
+  <div id="rotate">Turn your phone sideways</div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
