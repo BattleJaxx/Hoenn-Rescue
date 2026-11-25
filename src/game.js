@@ -28,6 +28,7 @@ export class BootScene extends Phaser.Scene {
     this.load.spritesheet('treecko_actions', 'assets/treecko_actions.png', { frameWidth: 48, frameHeight: 32 });
     this.load.spritesheet('poochyena_actions', 'assets/poochyena_actions.png', { frameWidth: 48, frameHeight: 32 });
     this.load.image('fg-bush', 'assets/fg_bush.png');
+    this.load.image('ground', 'assets/ground.png');
     this.load.spritesheet('poochyena', 'assets/poochyena.png', { frameWidth: 32, frameHeight: 32 });
   }
 
@@ -104,7 +105,11 @@ export class GameScene extends Phaser.Scene {
     this.bgFar = this.add.tileSprite(0, 0, VIEW_W, 110, 'bg-far').setOrigin(0).setScrollFactor(0).setDepth(-40);
     this.bgTrunks = this.add.tileSprite(0, -14, VIEW_W, 120, 'bg-trunks').setOrigin(0).setScrollFactor(0).setDepth(-30);
     this.ground = this.add.tileSprite(0, GROUND_TOP - 12, VIEW_W, 76, 'ground').setOrigin(0).setScrollFactor(0).setDepth(-20);
-    this.add.rectangle(0, GROUND_TOP + 64, VIEW_W, VIEW_H, 0x58a043).setOrigin(0).setScrollFactor(0).setDepth(-21);
+    // Fill below the ground strip with the colour of its bottom-left pixel
+    const gTex = this.textures.get('ground').getSourceImage();
+    const under = this.textures.getPixel(0, gTex.height - 1, 'ground');
+    this.add.rectangle(0, GROUND_TOP - 12 + gTex.height, VIEW_W, VIEW_H, under ? under.color : 0x58a043)
+      .setOrigin(0).setScrollFactor(0).setDepth(-21);
     this.fg = this.add.tileSprite(0, VIEW_H - 24, VIEW_W, 24, 'fg-bush').setOrigin(0).setScrollFactor(0).setDepth(9000);
   }
 
