@@ -10,6 +10,8 @@ function rng(seed) {
 }
 
 function canvasTex(scene, key, w, h, draw) {
+  // A hand-drawn PNG loaded under the same key replaces the placeholder
+  if (scene.textures.exists(key)) return scene.textures.get(key);
   const tex = scene.textures.createCanvas(key, w, h);
   const ctx = tex.getContext();
   ctx.imageSmoothingEnabled = false;

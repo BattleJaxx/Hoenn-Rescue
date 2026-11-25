@@ -20,7 +20,7 @@ The stage isn't tile-based. Like classic arcade beat 'em ups, it's built from ho
 | `bg_far.png` | 256x110 | 0.2x | Back canopy and light. Fully opaque. |
 | `bg_trunks.png` | 192x120 | 0.55x | Tree trunks. Transparent areas show `bg_far`. Bottom sits at screen y 106. |
 | `ground.png` | 64x76 | 1x | Grass bank and path. Fighters' feet walk from strip row 12 to row 70 (screen y 110–168). Starts at screen y 98. |
-| `fg_bush.png` | 160x24 | 1.3x | Drawn in front of the fighters at screen y 164. Keep it low and sparse so it doesn't hide feet. |
+| `fg_bush.png` | 160x24 | 1.3x | Drawn in front of the fighters along the bottom edge (screen y 156–180). Keep it low and sparse so it doesn't hide feet on the front lane (y 168). |
 
 `guides/stage_layers_guide.png` shows how the layers stack on the 320x180 screen.
 
