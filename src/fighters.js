@@ -384,12 +384,33 @@ export class Player extends Fighter {
 // ---------------------------------------------------------------------------
 export class Poochyena extends Fighter {
   constructor(scene, x, y) {
-    super(scene, 'poochyena', x, y, POOCHYENA.hp, 'POOCHYENA');
+    super(scene, 'poochyena_actions', x, y, POOCHYENA.hp, 'POOCHYENA');
     this.token = false;
     this.slotY = (Math.random() - 0.5) * 30;
     this.slotX = 54 + Math.random() * 30;
     this.paceT = Math.random() * 1000;
     this.setState('enter');
+  }
+
+  // Pick a frame from the hand-drawn sheet (2 columns, rows listed in art/templates/README.md)
+  frameFor() {
+    const f = (row, col) => row * 2 + col;
+    const B = POOCHYENA.bite;
+    switch (this.state) {
+      case 'enter':
+      case 'idle':
+        if (this.moving) return f(1, Math.floor(this.walkT / 130) % 2);
+        return f(0, Math.floor(this.scene.time.now / 400) % 2);
+      case 'windup': return f(2, this.t < B.windup / 2 ? 0 : 1);
+      case 'bite': return f(3, this.t < B.dash / 2 ? 0 : 1);
+      case 'recover': return f(4, 0);
+      case 'hurt': return f(5, 0);
+      case 'launched': return f(6, 0);
+      case 'down':
+      case 'dead': return f(7, 0);
+      case 'getup': return f(8, 0);
+      default: return f(0, 0);
+    }
   }
 
   onHurt() {

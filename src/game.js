@@ -26,6 +26,7 @@ export class BootScene extends Phaser.Scene {
   preload() {
     this.load.spritesheet('treecko', 'assets/treecko.png', { frameWidth: 32, frameHeight: 32 });
     this.load.spritesheet('treecko_actions', 'assets/treecko_actions.png', { frameWidth: 48, frameHeight: 32 });
+    this.load.spritesheet('poochyena_actions', 'assets/poochyena_actions.png', { frameWidth: 48, frameHeight: 32 });
     this.load.spritesheet('poochyena', 'assets/poochyena.png', { frameWidth: 32, frameHeight: 32 });
   }
 
