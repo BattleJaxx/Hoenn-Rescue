@@ -48,3 +48,40 @@ export const POOCHYENA = {
   waitSpeed: 30,
   bite: { windup: 380, dash: 190, dashSpeed: 165, recovery: 520, dmg: 8, range: 16, depth: 8, stun: 300, push: 26 },
 };
+
+// ----- Wild Pokémon (Petalburg Woods) ---------------------------------------
+// Spawn weights follow the woods' encounter table in pokeemerald-expansion.
+export const WILD = {
+  firstDelay: [4000, 8000],     // ms before the first wild encounter can happen
+  interval: [6000, 12000],      // ms between encounters (counts twice as fast between waves)
+  maxAlive: 2,
+  table: [
+    { species: 'poochyena', weight: 30 },
+    { species: 'wurmple', weight: 25 },
+    { species: 'shroomish', weight: 15 },
+    { species: 'silcoon', weight: 10 },
+  ],
+};
+
+export const WURMPLE = {
+  name: 'WURMPLE', hp: 16, speed: 30, waitSpeed: 20, exp: 8,
+  // String Shot: a slow-moving thread that slows you down
+  stringShot: { windup: 450, recovery: 650, speed: 150, life: 1.3, minRange: 30, maxRange: 150, dmg: 1, slow: 3000, stun: 120, push: 6 },
+  tackle: { windup: 300, dash: 160, dashSpeed: 120, recovery: 500, dmg: 4, range: 14, depth: 8, stun: 220, push: 18 },
+};
+
+export const SHROOMISH = {
+  name: 'SHROOMISH', hp: 30, speed: 14, exp: 10,
+  // Spore cloud: lingers and hurts while you stand in it
+  spore: { triggerRange: 54, windup: 550, cooldown: 3200, life: 2200, radiusX: 26, radiusY: 11, tick: 450, dmg: 3 },
+};
+
+export const SILCOON = {
+  name: 'SILCOON', hp: 45, exp: 10,
+  hardenTaken: 0.5,             // takes half damage
+  body: { w: 12, d: 6 },        // blocks the lane: you can't walk through it
+  slam: { triggerRange: 24, windup: 650, cooldown: 2400, dmg: 7, range: 24, depth: 9, stun: 300, push: 30 },
+};
+
+// Grunt waves: XP for clearing, and how long the item choice waits
+export const GRUNT = { name: 'AQUA GRUNT' };

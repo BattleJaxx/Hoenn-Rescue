@@ -3,9 +3,10 @@ import {
   PLAYER, ATTACKS, POOCHYENA,
 } from './config.js';
 import { input } from './input.js';
+import { effects } from './items.js';
 
-const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-const sign = (v) => (v < 0 ? -1 : 1);
+export const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+export const sign = (v) => (v < 0 ? -1 : 1);
 
 // Follower sprite frames: 0-1 facing down, 2-3 facing up, 4-5 side (facing left)
 const SIDE_A = 4;
@@ -34,6 +35,9 @@ export class Fighter {
     this.walkT = 0;
     this.moving = false;
     this.removed = false;
+    this.gravity = GRAVITY;
+    this.damageTaken = 1;   // multiplier, e.g. Silcoon's Harden
+    this.koReported = false;
 
     this.shadow = scene.add.image(x, y, 'shadow').setDepth(5).setScale(1.1, 1);
     this.sprite = scene.add.sprite(x, y, key, SIDE_A)
@@ -54,7 +58,7 @@ export class Fighter {
   physics(dt) {
     let landed = false;
     if (this.airborne) {
-      this.vz -= GRAVITY * dt;
+      this.vz -= this.gravity * dt;
       this.z += this.vz * dt;
       if (this.z <= 0) {
         this.z = 0;
@@ -69,42 +73,71 @@ export class Fighter {
     return landed;
   }
 
-  // Called when an attack connects. Returns 'hit', 'blocked' or null (ignored).
+  // Called when an attack connects. Returns 'hit', 'blocked', 'miss' or null (ignored).
   takeHit(src, atk) {
     if (!this.alive || this.invuln > 0) return null;
     if (['launched', 'down', 'getup', 'dead'].includes(this.state)) return null;
 
     const dir = sign(this.x - src.x); // direction we get pushed
 
-    if (this.state === 'block' && this.facing === -dir) {
+    if (!atk.unblockable && this.state === 'block' && this.facing === -dir) {
       this.hp = Math.max(1, this.hp - 1); // chip damage, can't kill
       this.vx = dir * 50;
       this.blockFlash = 80;
       this.scene.sfxBlock(this);
+      this.onBlock?.(src, atk);
       return 'blocked';
     }
 
-    this.hp = Math.max(0, this.hp - atk.dmg);
-    this.flash = 90;
-    this.facing = -dir;
-
-    if (this.hp <= 0 || atk.knockdown || this.airborne) {
-      this.vx = dir * 95;
-      this.vz = 150;
-      this.z = Math.max(this.z, 1);
-      this.setState('launched');
-    } else {
-      this.vx = dir * (atk.push || 20) * 3;
-      this.stun = atk.stun || 250;
-      this.setState('hurt');
+    let dmg = atk.dmg * this.damageTaken;
+    if (this.modifyIncoming) {
+      dmg = this.modifyIncoming(dmg, atk);
+      if (dmg === null) return 'miss';
     }
-    this.onHurt?.();
+
+    this.hp = Math.max(0, this.hp - dmg);
+    this.flash = 90;
+    if (!atk.noStagger || this.hp <= 0) {
+      this.facing = -dir;
+      if (this.hp <= 0 || atk.knockdown || this.airborne) {
+        this.launch(dir);
+      } else {
+        this.vx = dir * (atk.push || 20) * 3;
+        this.stun = atk.stun || 250;
+        this.setState('hurt');
+      }
+    }
+    this.onHurt?.(atk);
+    this.reportKO();
     return 'hit';
+  }
+
+  // Damage without a hit reaction (e.g. Rocky Helmet). Still knocks out.
+  chip(dmg) {
+    if (!this.alive) return;
+    this.hp = Math.max(0, this.hp - dmg);
+    this.flash = 90;
+    if (this.hp <= 0) this.launch(sign(this.x - this.scene.player.x));
+    this.reportKO();
+  }
+
+  launch(dir) {
+    this.gravity = GRAVITY;
+    this.vx = dir * 95;
+    this.vz = 150;
+    this.z = Math.max(this.z, 1);
+    this.setState('launched');
+  }
+
+  reportKO() {
+    if (this.hp <= 0 && !this.koReported) {
+      this.koReported = true;
+      this.onKO?.();
+    }
   }
 
   // Shared handling of hurt / knockdown / get-up. Returns true if it handled this frame.
   updateDamageStates(dt, landed) {
-    const ms = dt * 1000;
     switch (this.state) {
       case 'hurt':
         if (this.t > this.stun) this.setState('idle');
@@ -164,11 +197,12 @@ export class Fighter {
     s.setPosition(Math.round(this.x + ox), Math.round(this.y - this.z));
     s.setDepth(10 + this.y);
 
-    // Tints: white flash on hit, blue on block
+    // Tints: white flash on hit, blue on block, yellow before an attack
     if (this.flash > 0) s.setTintFill(0xffffff);
     else if (this.blockFlash > 0) s.setTintFill(0x9fc4ff);
     else if (this.state === 'block' && !drawn) s.setTint(0x9fc4ff);
     else if (this.telegraph) s.setTint(Math.floor(this.t / 60) % 2 ? 0xffe070 : 0xffffff);
+    else if (this.tint) s.setTint(this.tint);
     else s.clearTint();
 
     // Blink while invulnerable after getting up, or while fading out when dead
@@ -208,13 +242,84 @@ export class Fighter {
 export class Player extends Fighter {
   constructor(scene, x, y) {
     super(scene, 'treecko_actions', x, y, PLAYER.hp, 'TREECKO');
+    this.baseMaxHp = PLAYER.hp;
     this.energy = 0;
     this.queued = null;
+    this.items = {};       // item id -> stacks
+    this.exp = 0;
+    this.slowT = 0;        // String Shot slow, ms left
+    this.ejectT = 0;       // Eject Button boost, ms left
+    this.ejectDur = 1;
   }
 
+  // ----- Items ---------------------------------------------------------
+  addItem(id) {
+    this.items[id] = (this.items[id] || 0) + 1;
+    // Macho Brace raises max HP; heal by the amount it went up
+    const newMax = this.baseMaxHp * effects.machoStat(this.items);
+    this.hp += newMax - this.maxHp;
+    this.maxHp = newMax;
+  }
+
+  heal(frac) {
+    if (!this.alive || frac <= 0) return;
+    const amount = this.maxHp * frac;
+    this.hp = Math.min(this.maxHp, this.hp + amount);
+    this.scene.floatText(this.x, this.y - 40, `+${Math.max(1, Math.round(amount))}`, '#7cff7c');
+  }
+
+  get speedMult() {
+    let m = effects.machoSpeed(this.items);
+    if (this.slowT > 0) m *= 0.55;
+    if (this.ejectT > 0) m *= 1 + this.ejectT / this.ejectDur; // +100% fading to 0
+    return m;
+  }
+
+  // Damage multiplier for our attacks
+  outgoing(atkName) {
+    let m = effects.machoStat(this.items);
+    if (atkName === 'light3') m *= effects.finisherMult(this.items);
+    if (atkName === 'seed') m *= effects.specialMult(this.items);
+    return m;
+  }
+
+  modifyIncoming(dmg) {
+    if (Math.random() < effects.missChance(this.items)) {
+      this.scene.floatText(this.x, this.y - 40, 'MISS', '#ffffff');
+      return null;
+    }
+    dmg /= effects.machoStat(this.items);
+    const flat = effects.flatReduce(this.items);
+    if (flat) dmg = Math.max(1, dmg - flat);
+    return dmg;
+  }
+
+  onHurt(atk) {
+    const secs = effects.ejectSeconds(this.items);
+    if (secs > 0) {
+      this.ejectDur = secs * 1000;
+      this.ejectT = this.ejectDur;
+    }
+    if (atk && atk.slow) {
+      this.slowT = atk.slow / effects.statDropSpeed(this.items);
+      this.scene.floatText(this.x, this.y - 40, 'SPEED DOWN', '#c8c8ff');
+    }
+  }
+
+  onBlock(src, atk) {
+    const dmg = effects.thorns(this.items);
+    const target = (atk && atk.owner) || src;
+    if (dmg > 0 && target && target.chip && target.alive) {
+      target.chip(dmg);
+      this.scene.spark(target.x, target.y - target.z - 14, 0xffb070);
+      this.scene.noteTarget(target);
+    }
+  }
+
+  // ----- Combat ----------------------------------------------------------
   startAttack(name) {
     this.atkName = name;
-    this.atk = ATTACKS[name];
+    this.atk = { ...ATTACKS[name], dmg: ATTACKS[name].dmg * this.outgoing(name) };
     this.hitSet = new Set();
     this.queued = null;
     this.setState('attack');
@@ -222,6 +327,11 @@ export class Player extends Fighter {
 
   update(dt) {
     this.tickTimers(dt);
+    const ms = dt * 1000;
+    this.slowT = Math.max(0, this.slowT - ms);
+    this.ejectT = Math.max(0, this.ejectT - ms);
+    this.tint = this.slowT > 0 ? 0xd8d8ff : null;
+
     const landed = this.physics(dt);
     this.moving = false;
     this.offsetX = 0;
@@ -233,10 +343,16 @@ export class Player extends Fighter {
     const I = input;
     const dirX = (I.held.right ? 1 : 0) - (I.held.left ? 1 : 0);
     const dirY = (I.held.down ? 1 : 0) - (I.held.up ? 1 : 0);
+    const spd = this.speedMult;
 
     switch (this.state) {
       case 'idle':
       case 'walk': {
+        // Standing on a dropped item: Light picks it up instead of attacking
+        if (I.pressed.light && this.scene.hoverPickup) {
+          this.scene.takePickup(this.scene.hoverPickup);
+          break;
+        }
         if (I.pressed.special && this.energy >= PLAYER.specialCost) {
           this.energy -= PLAYER.specialCost;
           this.seedsFired = 0;
@@ -246,8 +362,11 @@ export class Player extends Fighter {
         if (I.pressed.light) { this.startAttack('light1'); break; }
         if (I.pressed.heavy) { this.startAttack('heavy'); break; }
         if (I.pressed.jump) {
-          this.vz = PLAYER.jumpVel;
-          this.vx = dirX * PLAYER.speedX;
+          // Air Balloon: same height, longer airtime
+          const k = effects.jumpTime(this.items);
+          this.vz = PLAYER.jumpVel / k;
+          this.gravity = GRAVITY / (k * k);
+          this.vx = dirX * PLAYER.speedX * spd;
           this.z = 1;
           this.airAtk = null;
           this.setState('jump');
@@ -255,8 +374,8 @@ export class Player extends Fighter {
         }
         if (I.held.block) { this.setState('block'); break; }
         if (dirX) this.facing = dirX;
-        this.x += dirX * PLAYER.speedX * dt;
-        this.y += dirY * PLAYER.speedY * dt;
+        this.x += dirX * PLAYER.speedX * spd * dt;
+        this.y += dirY * PLAYER.speedY * spd * dt;
         this.moving = dirX !== 0 || dirY !== 0;
         break;
       }
@@ -268,16 +387,17 @@ export class Player extends Fighter {
       case 'jump': {
         if (!this.airAtk && (I.pressed.light || I.pressed.heavy)) {
           this.airAtk = I.pressed.heavy ? 'jumpHeavy' : 'jumpLight';
+          this.airAtkData = { ...ATTACKS[this.airAtk], dmg: ATTACKS[this.airAtk].dmg * this.outgoing(this.airAtk) };
           this.hitSet = new Set();
         }
         if (this.airAtk) {
-          const atk = ATTACKS[this.airAtk];
           this.showSlash(this.airAtk === 'jumpHeavy' ? 1.4 : 1.1);
           this.offsetX = this.facing * 3;
-          this.scene.meleeHit(this, atk, this.hitSet);
+          this.scene.meleeHit(this, this.airAtkData, this.hitSet);
         }
         if (landed) {
           this.vx = 0;
+          this.gravity = GRAVITY;
           this.setState('land');
         }
         break;
@@ -322,6 +442,7 @@ export class Player extends Fighter {
       }
     }
 
+    this.scene.pushOutOfObstacles(this);
     this.clampToScreen();
   }
 
@@ -380,42 +501,55 @@ export class Player extends Fighter {
 }
 
 // ---------------------------------------------------------------------------
-// Enemy: Team Aqua Poochyena (rusher)
+// Enemy base: shared entry, screen clamping, death and movement helpers.
+// Subclasses implement think(dt, p) for their own behaviour.
 // ---------------------------------------------------------------------------
-export class Poochyena extends Fighter {
-  constructor(scene, x, y) {
-    super(scene, 'poochyena_actions', x, y, POOCHYENA.hp, 'POOCHYENA');
+export class Enemy extends Fighter {
+  constructor(scene, key, x, y, cfg) {
+    super(scene, key, x, y, cfg.hp, cfg.name);
+    this.cfg = cfg;
+    this.wild = !!cfg.wild;
+    this.exp = cfg.exp || 10;
     this.token = false;
     this.slotY = (Math.random() - 0.5) * 30;
     this.slotX = 54 + Math.random() * 30;
     this.paceT = Math.random() * 1000;
-    this.setState('enter');
-  }
-
-  // Pick a frame from the hand-drawn sheet (2 columns, rows listed in art/templates/README.md)
-  frameFor() {
-    const f = (row, col) => row * 2 + col;
-    const B = POOCHYENA.bite;
-    switch (this.state) {
-      case 'enter':
-      case 'idle':
-        if (this.moving) return f(1, Math.floor(this.walkT / 130) % 2);
-        return f(0, Math.floor(this.scene.time.now / 400) % 2);
-      case 'windup': return f(2, this.t < B.windup / 2 ? 0 : 1);
-      case 'bite': return f(3, this.t < B.dash / 2 ? 0 : 1);
-      case 'recover': return f(4, 0);
-      case 'hurt': return f(5, 0);
-      case 'launched': return f(6, 0);
-      case 'down':
-      case 'dead': return f(7, 0);
-      case 'getup': return f(8, 0);
-      default: return f(0, 0);
+    this.setState(cfg.emerge ? 'emerge' : 'enter');
+    if (cfg.emerge) {
+      // Hop out of the tall grass onto the path
+      this.z = 1;
+      this.vz = 150;
+      this.emergeY = cfg.emergeToY;
     }
   }
 
   onHurt() {
     this.telegraph = false;
     this.scene.releaseToken(this);
+  }
+
+  onKO() { this.scene.onEnemyKO(this); }
+
+  moveToward(tx, ty, speed, dt) {
+    const ddx = tx - this.x;
+    const ddy = ty - this.y;
+    const d = Math.hypot(ddx, ddy);
+    if (d < 2) return true;
+    const step = Math.min(d, speed * dt);
+    this.x += (ddx / d) * step;
+    this.y += (ddy / d) * step;
+    this.moving = true;
+    return false;
+  }
+
+  // Wait at a distance from the player, pacing back and forth
+  hangBack(p, dt, speed) {
+    const side = this.x < p.x ? -1 : 1;
+    this.paceT += dt * 1000;
+    const pace = Math.sin(this.paceT / 500) * 8;
+    const tx = p.x + side * (this.slotX + pace);
+    const ty = clamp(p.y + this.slotY, GROUND_TOP, GROUND_BOTTOM);
+    this.moveToward(tx, ty, speed, dt);
   }
 
   update(dt) {
@@ -438,43 +572,66 @@ export class Poochyena extends Fighter {
     if (this.updateDamageStates(dt, landed)) return;
 
     const p = this.scene.player;
+    if (this.state === 'enter') {
+      const cam = this.scene.camX;
+      this.facing = sign(p.x - this.x);
+      this.moveToward(clamp(this.x, cam + 30, cam + 290), this.y, this.cfg.speed, dt);
+      if (this.x > cam + 24 && this.x < cam + 296) this.setState('idle');
+      return;
+    }
+    if (this.state === 'emerge') {
+      this.facing = sign(p.x - this.x);
+      this.y += (this.emergeY - this.y) * Math.min(1, dt * 6);
+      this.moving = true;
+      if (landed) this.setState('idle');
+      return;
+    }
+    this.think(dt, p);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Poochyena (rusher): closes in and lunges with a bite
+// ---------------------------------------------------------------------------
+export class Poochyena extends Enemy {
+  constructor(scene, x, y, opts = {}) {
+    super(scene, 'poochyena_actions', x, y, { ...POOCHYENA, name: 'POOCHYENA', exp: 12, ...opts });
+  }
+
+  // Pick a frame from the hand-drawn sheet (2 columns, rows listed in art/templates/README.md)
+  frameFor() {
+    const f = (row, col) => row * 2 + col;
+    const B = POOCHYENA.bite;
+    switch (this.state) {
+      case 'enter':
+      case 'emerge':
+      case 'idle':
+        if (this.moving) return f(1, Math.floor(this.walkT / 130) % 2);
+        return f(0, Math.floor(this.scene.time.now / 400) % 2);
+      case 'windup': return f(2, this.t < B.windup / 2 ? 0 : 1);
+      case 'bite': return f(3, this.t < B.dash / 2 ? 0 : 1);
+      case 'recover': return f(4, 0);
+      case 'hurt': return f(5, 0);
+      case 'launched': return f(6, 0);
+      case 'down':
+      case 'dead': return f(7, 0);
+      case 'getup': return f(8, 0);
+      default: return f(0, 0);
+    }
+  }
+
+  think(dt, p) {
     const B = POOCHYENA.bite;
     const dx = p.x - this.x;
-    const side = this.x < p.x ? -1 : 1; // which side of the player we're on
-
-    const moveToward = (tx, ty, speed) => {
-      const ddx = tx - this.x;
-      const ddy = ty - this.y;
-      const d = Math.hypot(ddx, ddy);
-      if (d < 2) return true;
-      const step = Math.min(d, speed * dt);
-      this.x += (ddx / d) * step;
-      this.y += (ddy / d) * step;
-      this.moving = true;
-      return false;
-    };
+    const side = this.x < p.x ? -1 : 1;
 
     switch (this.state) {
-      case 'enter': {
-        // Run in from off-screen
-        const cam = this.scene.camX;
-        this.facing = sign(dx);
-        moveToward(clamp(this.x, cam + 30, cam + 290), this.y, POOCHYENA.speed);
-        if (this.x > cam + 24 && this.x < cam + 296) this.setState('idle');
-        break;
-      }
-
       case 'idle': {
         this.facing = sign(dx);
-        if (!p.alive) {
-          this.paceT += dt * 1000;
-          break;
-        }
+        if (!p.alive) break;
         if (this.token) {
           // Close in and line up for a bite
-          const tx = p.x + side * 20;
-          const ty = p.y;
-          const there = moveToward(tx, ty, POOCHYENA.speed);
+          const there = this.moveToward(p.x + side * 20, p.y, POOCHYENA.speed, dt);
           if (there || (Math.abs(dx) < 24 && Math.abs(p.y - this.y) < 5)) {
             this.telegraph = true;
             this.setState('windup');
@@ -482,12 +639,7 @@ export class Poochyena extends Fighter {
           this.tokenAge = (this.tokenAge || 0) + dt * 1000;
           if (this.tokenAge > 3000) this.scene.releaseToken(this); // gave up
         } else {
-          // Wait at a distance, pacing back and forth
-          this.paceT += dt * 1000;
-          const pace = Math.sin(this.paceT / 500) * 8;
-          const tx = p.x + side * (this.slotX + pace);
-          const ty = clamp(p.y + this.slotY, GROUND_TOP, GROUND_BOTTOM);
-          moveToward(tx, ty, POOCHYENA.waitSpeed);
+          this.hangBack(p, dt, POOCHYENA.waitSpeed);
         }
         break;
       }

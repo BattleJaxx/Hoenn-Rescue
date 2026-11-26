@@ -178,6 +178,42 @@ export function makeTextures(scene) {
     ctx.fillRect(1, 1, 1, 1);
   });
 
+  // String Shot thread
+  canvasTex(scene, 'string', 12, 4, (ctx) => {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 1, 12, 1);
+    ctx.fillRect(2, 0, 3, 1); ctx.fillRect(7, 2, 3, 1);
+    ctx.fillStyle = '#c8c8e8';
+    ctx.fillRect(0, 2, 5, 1); ctx.fillRect(6, 0, 4, 1);
+  });
+
+  // Spore cloud puff
+  canvasTex(scene, 'spore', 56, 24, (ctx) => {
+    const r = rng(5);
+    for (let i = 0; i < 70; i++) {
+      const a = r() * Math.PI * 2, d = Math.sqrt(r());
+      const x = Math.round(28 + Math.cos(a) * d * 26), y = Math.round(12 + Math.sin(a) * d * 11);
+      ctx.fillStyle = r() < 0.5 ? '#e8e070' : '#b8d860';
+      ctx.fillRect(x, y, r() < 0.3 ? 2 : 1, r() < 0.3 ? 2 : 1);
+    }
+  });
+
+  // Leaf for rustling grass
+  canvasTex(scene, 'leaf', 3, 3, (ctx) => {
+    ctx.fillStyle = '#58a043';
+    ctx.fillRect(0, 1, 3, 1); ctx.fillRect(1, 0, 1, 3);
+    ctx.fillStyle = '#7cc25a';
+    ctx.fillRect(1, 1, 1, 1);
+  });
+
+  // Sparkle under dropped items
+  canvasTex(scene, 'glint', 7, 7, (ctx) => {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(3, 0, 1, 7); ctx.fillRect(0, 3, 7, 1);
+    ctx.fillStyle = '#fff6a0';
+    ctx.fillRect(2, 2, 3, 3);
+  });
+
   // "GO" arrow
   canvasTex(scene, 'go-arrow', 16, 13, (ctx) => {
     ctx.fillStyle = '#000';
