@@ -64,6 +64,71 @@ Same 48x32 cells and feet point.
 | 7 | down | lying | 650 ms | |
 | 8 | getup | getting up | 260 ms | |
 
+## Grovyle: `grovyle_actions.png` (192x480)
+
+Same 48x32 cells, feet point and rows as Treecko. Two rows also serve the move upgrade chosen on evolving:
+
+- **Rows 2–4 (light combo):** used for Fury Cutter too. The game tints the slash green.
+- **Row 5 (heavy):** used for Leaf Blade too. It's worth showing the arm blades in the HIT frame.
+- **Row 9 (special):** still Bullet Seed.
+
+## Sceptile: `sceptile_actions.png` (256x600)
+
+Sceptile is much bigger, so its cells are **64x40**, with the feet on **row 38 at column 32**. The rows are the same as Treecko's, except row 9:
+
+| Row | Animation | Frames | Timing |
+| --- | --- | --- | --- |
+| 9 | special (Leaf Storm) | charge, release, follow-through | 120 ms charge, the volley fires, then held ~500 ms |
+
+## Wild Pokémon
+
+All use 48x32 cells with the feet on row 30 at column 24.
+
+### Wurmple: `wurmple_actions.png` (96x352)
+
+| Row | Animation | Frames | Timing | Hit reach |
+| --- | --- | --- | --- | --- |
+| 0 | idle | idle 1, idle 2 | loops | |
+| 1 | walk | crawl A, crawl B | 130 ms each | |
+| 2 | string_windup | rear up 1, rear up 2 | 450 ms total (flashes yellow) | |
+| 3 | string_shot | spit | the thread fires; held through the 650 ms recovery | projectile |
+| 4 | tackle_windup | coil | 300 ms (flashes yellow) | |
+| 5 | tackle | lunge, HIT | 160 ms dash | 7 px |
+| 6 | recover | recover | 650 ms | |
+| 7 | hurt | hit | ~250 ms | |
+| 8 | launched | airborne | knocked flying | |
+| 9 | down | lying | 650 ms | |
+| 10 | getup | getting up | 260 ms | |
+
+### Shroomish: `shroomish_actions.png` (96x256)
+
+| Row | Animation | Frames | Timing |
+| --- | --- | --- | --- |
+| 0 | idle | idle 1, idle 2 | loops |
+| 1 | walk | waddle A, waddle B | slow, 130 ms each |
+| 2 | spore_windup | shiver 1, shiver 2 | 550 ms (flashes yellow) |
+| 3 | spore_puff | puff | the cloud is released (~300 ms) |
+| 4 | hurt | hit | ~250 ms |
+| 5 | launched | airborne | knocked flying |
+| 6 | down | lying | 650 ms |
+| 7 | getup | getting up | 260 ms |
+
+### Silcoon: `silcoon_actions.png` (96x288)
+
+Silcoon never walks, so it has a hop for jumping out of the grass instead.
+
+| Row | Animation | Frames | Timing | Hit reach |
+| --- | --- | --- | --- | --- |
+| 0 | idle | idle 1, idle 2 | loops | |
+| 1 | hop | hop | jumping out of the tall grass | |
+| 2 | slam_windup | tense 1, tense 2 | 650 ms (flashes yellow) | |
+| 3 | slam_air | airborne | short hop | |
+| 4 | slam_land | SLAM | ~200 ms on landing | 12 px, on **both** sides |
+| 5 | hurt | hit | ~250 ms | |
+| 6 | launched | airborne | knocked flying | |
+| 7 | down | lying | 650 ms | |
+| 8 | getup | getting up | 260 ms | |
+
 ## Effects: `effects/`
 
 | File | Size | Use |
@@ -76,4 +141,4 @@ Same 48x32 cells and feet point.
 
 ## Regenerating
 
-`python3 tools/make_templates.py <exported-textures-dir> art/templates` rebuilds these from the current game art. Don't run it after you've started painting, or it will overwrite your work.
+`python3 tools/make_templates.py <exported-textures-dir> art/templates all` rebuilds everything from the current game art, which overwrites painted templates. To build only some sheets, name them instead of `all`, e.g. `... art/templates wurmple_actions`.

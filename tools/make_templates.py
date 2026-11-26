@@ -1,6 +1,9 @@
 """Build editable art templates (and enlarged guide images) for Hoenn Rescue.
 
-Usage: python3 tools/make_templates.py <exported-textures-dir> <out-dir>
+Usage: python3 tools/make_templates.py <exported-textures-dir> <out-dir> [all | <sheet name> ...]
+
+With sheet names (e.g. grovyle_actions), only those action sheets are built, so
+templates you have already painted over are left alone.
 
 <exported-textures-dir> holds the game's current procedurally drawn images
 (bg-far.png, ground.png, slash.png, ...) exported from the running game.
@@ -67,13 +70,16 @@ def base_for(species, anim, i):
     return f
 
 
-def build_sheet(species, anims, name):
+def build_sheet(species, anims, name, cell=(48, 32), feet=(24, 30)):
+    global CELL_W, CELL_H, FEET_X, FEET_Y
+    CELL_W, CELL_H = cell
+    FEET_X, FEET_Y = feet
     cols = max(len(a[1]) for a in anims)
     sheet = Image.new('RGBA', (cols * CELL_W, len(anims) * CELL_H), (0, 0, 0, 0))
     for r, (anim, frames, _, _) in enumerate(anims):
         for c in range(len(frames)):
             f = base_for(species, anim, c)
-            dy = 0
+            dy = FEET_Y - 30                      # follower frames have their feet on row 30
             if anim in ('down', 'launched', 'getup'):
                 bb = f.getbbox()
                 dy = (FEET_Y + 1) - bb[3]          # rest the rotated body on the feet line
@@ -189,6 +195,79 @@ def build_effects():
         y += img.height * z + 50
     g.save(os.path.join(OUT, 'guides', 'effects_guide.png'))
 
+
+# ---------------------------------------------------------------------------
+# Evolutions and wild Pokémon
+# ---------------------------------------------------------------------------
+def evolution_rows(special_row):
+    rows = [list(r) for r in TREECKO]
+    for r in rows:
+        if r[0] in ('light1', 'light2', 'light3'):
+            r[2] += '; Fury Cutter upgrade uses this row too'
+        if r[0] == 'heavy':
+            r[2] += '; Leaf Blade upgrade uses this row'
+    rows[9] = special_row
+    return [tuple(r) for r in rows]
+
+GROVYLE = evolution_rows(('special', ['charge', 'fire A', 'fire B'], 'Bullet Seed: 90 ms, then A/B alternate per seed', None))
+SCEPTILE = evolution_rows(('special', ['charge', 'release', 'follow-through'], 'Leaf Storm: 120 ms charge, volley, held ~500 ms', None))
+
+WURMPLE = [
+    ('idle', ['idle 1', 'idle 2'], 'loops', None),
+    ('walk', ['crawl A', 'crawl B'], 'loops; 130 ms per frame', None),
+    ('string_windup', ['rear up 1', 'rear up 2'], '450 ms total (flashes yellow)', None),
+    ('string_shot', ['spit'], 'thread fires; held through 650 ms recovery', None),
+    ('tackle_windup', ['coil'], '300 ms (flashes yellow)', None),
+    ('tackle', ['lunge', 'HIT'], '160 ms dash', 14),
+    ('recover', ['recover'], '650 ms', None),
+    ('hurt', ['hit'], '~250 ms', None),
+    ('launched', ['airborne'], 'flying back', None),
+    ('down', ['lying'], '650 ms', None),
+    ('getup', ['getting up'], '260 ms', None),
+]
+
+SHROOMISH = [
+    ('idle', ['idle 1', 'idle 2'], 'loops', None),
+    ('walk', ['waddle A', 'waddle B'], 'slow; 130 ms per frame', None),
+    ('spore_windup', ['shiver 1', 'shiver 2'], '550 ms (flashes yellow)', None),
+    ('spore_puff', ['puff'], 'spore cloud released (~300 ms)', None),
+    ('hurt', ['hit'], '~250 ms', None),
+    ('launched', ['airborne'], 'flying back', None),
+    ('down', ['lying'], '650 ms', None),
+    ('getup', ['getting up'], '260 ms', None),
+]
+
+SILCOON = [
+    ('idle', ['idle 1', 'idle 2'], 'loops (it never walks)', None),
+    ('hop', ['hop'], 'hopping out of the tall grass', None),
+    ('slam_windup', ['tense 1', 'tense 2'], '650 ms (flashes yellow)', None),
+    ('slam_air', ['airborne'], 'short hop', None),
+    ('slam_land', ['SLAM'], 'hits both sides on landing (~200 ms)', 24),
+    ('hurt', ['hit'], '~250 ms', None),
+    ('launched', ['airborne'], 'flying back', None),
+    ('down', ['lying'], '650 ms', None),
+    ('getup', ['getting up'], '260 ms', None),
+]
+
+SHEETS = {
+    'treecko_actions': ('treecko', TREECKO, (48, 32), (24, 30)),
+    'poochyena_actions': ('poochyena', POOCHYENA, (48, 32), (24, 30)),
+    'grovyle_actions': ('grovyle', GROVYLE, (48, 32), (24, 30)),
+    # Sceptile is much bigger: a taller, wider cell
+    'sceptile_actions': ('sceptile', SCEPTILE, (64, 40), (32, 38)),
+    'wurmple_actions': ('wurmple', WURMPLE, (48, 32), (24, 30)),
+    'shroomish_actions': ('shroomish', SHROOMISH, (48, 32), (24, 30)),
+    'silcoon_actions': ('silcoon', SILCOON, (48, 32), (24, 30)),
+}
+
+
+if __name__ == '__main__' and len(sys.argv) > 3 and sys.argv[3] != 'all':
+    os.makedirs(os.path.join(OUT, 'guides'), exist_ok=True)
+    for name in sys.argv[3:]:
+        species, rows, cell, feet = SHEETS[name]
+        build_sheet(species, rows, name, cell, feet)
+        print('built', name)
+    sys.exit(0)
 
 if __name__ == '__main__':
     os.makedirs(os.path.join(OUT, 'guides'), exist_ok=True)
