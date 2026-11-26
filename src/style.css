@@ -44,8 +44,32 @@ body.touch #touch { display: block; }
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.12);
   border: 2px solid rgba(255, 255, 255, 0.35);
-  pointer-events: auto;
+  pointer-events: none;
+  opacity: 0.45;
 }
+
+#dpad.active { opacity: 1; }
+
+/* Left half of the screen: touch anywhere here to move */
+#stick-zone {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 50%;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+#touch #help-btn {
+  position: absolute;
+  display: none;
+  left: auto;
+  bottom: auto;
+  top: max(10px, env(safe-area-inset-top));
+  right: max(16px, env(safe-area-inset-right));
+}
+body.on-title #touch #help-btn { display: block; }
 
 #dpad-knob {
   position: absolute;

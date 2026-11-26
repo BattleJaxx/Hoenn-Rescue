@@ -2,9 +2,9 @@
 // Each frame the game calls input.update(), then reads:
 //   input.held.<name>     true while the control is held
 //   input.pressed.<name>  true only on the frame it was pressed
-// Names: left, right, up, down, light, heavy, jump, special, block, start
+// Names: left, right, up, down, light, heavy, jump, special, block, start, help
 
-const NAMES = ['left', 'right', 'up', 'down', 'light', 'heavy', 'jump', 'special', 'block', 'start'];
+const NAMES = ['left', 'right', 'up', 'down', 'light', 'heavy', 'jump', 'special', 'block', 'start', 'help'];
 
 const KEYMAP = {
   ArrowLeft: 'left', KeyA: 'left',
@@ -17,6 +17,7 @@ const KEYMAP = {
   KeyL: 'special', KeyV: 'special',
   ShiftLeft: 'block', ShiftRight: 'block', KeyI: 'block',
   Enter: 'start',
+  KeyH: 'help', Escape: 'help',
 };
 
 class Input {
@@ -83,39 +84,68 @@ class Input {
       el.addEventListener('contextmenu', (e) => e.preventDefault());
     });
 
-    // Analogue-style d-pad: direction from touch position relative to centre
+    // Help button (title screen)
+    const helpBtn = document.getElementById('help-btn');
+    helpBtn?.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); this.latched.add('help'); });
+
+    // Floating joystick: touch anywhere on the left half and the stick centres under your thumb.
+    // Drag past the edge and the stick follows your thumb, so you never slide off it.
+    const zone = document.getElementById('stick-zone');
     const pad = document.getElementById('dpad');
     const knob = document.getElementById('dpad-knob');
-    if (!pad) return;
+    if (!zone || !pad) return;
+    const RADIUS = 56;   // px the knob can travel from the centre
     let activeId = null;
-    const move = (e) => {
-      const r = pad.getBoundingClientRect();
-      const cx = r.left + r.width / 2;
-      const cy = r.top + r.height / 2;
-      let dx = (e.clientX - cx) / (r.width / 2);
-      let dy = (e.clientY - cy) / (r.height / 2);
-      const len = Math.hypot(dx, dy);
-      if (len > 1) { dx /= len; dy /= len; }
-      this.stick.x = dx;
-      this.stick.y = dy;
-      knob.style.transform = `translate(${dx * 40}px, ${dy * 40}px)`;
+    let cx = 0;
+    let cy = 0;
+    const place = () => {
+      pad.style.left = `${cx - pad.offsetWidth / 2}px`;
+      pad.style.top = `${cy - pad.offsetHeight / 2}px`;
+      pad.style.bottom = 'auto';
     };
-    const release = () => {
+    const move = (e) => {
+      let dx = e.clientX - cx;
+      let dy = e.clientY - cy;
+      const len = Math.hypot(dx, dy);
+      if (len > RADIUS) {
+        // drag the base along behind the thumb
+        cx += (dx / len) * (len - RADIUS);
+        cy += (dy / len) * (len - RADIUS);
+        dx = e.clientX - cx;
+        dy = e.clientY - cy;
+        place();
+      }
+      this.stick.x = dx / RADIUS;
+      this.stick.y = dy / RADIUS;
+      knob.style.transform = `translate(${dx * 0.75}px, ${dy * 0.75}px)`;
+    };
+    const release = (e) => {
+      if (e && e.pointerId !== activeId) return;
       activeId = null;
       this.stick.x = 0;
       this.stick.y = 0;
       knob.style.transform = '';
+      pad.classList.remove('active');
+      pad.style.left = pad.style.top = pad.style.bottom = ''; // back to its resting spot
     };
-    pad.addEventListener('pointerdown', (e) => {
+    zone.addEventListener('pointerdown', (e) => {
       e.preventDefault();
+      // Tapping still starts the game on the title and retry screens
+      this.touch.start = true;
+      this.latched.add('start');
+      if (activeId !== null) return;
       activeId = e.pointerId;
-      try { pad.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+      try { zone.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+      cx = e.clientX;
+      cy = e.clientY;
+      pad.classList.add('active');
+      place();
       move(e);
     });
-    pad.addEventListener('pointermove', (e) => { if (e.pointerId === activeId) move(e); });
-    pad.addEventListener('pointerup', release);
-    pad.addEventListener('pointercancel', release);
-    pad.addEventListener('lostpointercapture', release);
+    zone.addEventListener('pointermove', (e) => { if (e.pointerId === activeId) move(e); });
+    zone.addEventListener('pointerup', (e) => { this.touch.start = false; release(e); });
+    zone.addEventListener('pointercancel', release);
+    zone.addEventListener('lostpointercapture', release);
 
     // Tapping anywhere on the game counts as "start" (title / retry screens)
     document.getElementById('game').addEventListener('pointerdown', () => { this.touch.start = true; this.latched.add('start'); });
@@ -136,7 +166,7 @@ class Input {
       this.pressed[n] = (h && !this.prev[n]) || this.latched.has(n);
       this.held[n] = h;
       this.prev[n] = h;
-      if (this.pressed[n] && !['left', 'right', 'up', 'down'].includes(n)) this.anyPressed = true;
+      if (this.pressed[n] && !['left', 'right', 'up', 'down', 'help'].includes(n)) this.anyPressed = true;
     });
     this.latched.clear();
   }

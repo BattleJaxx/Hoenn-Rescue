@@ -68,22 +68,131 @@ export class TitleScene extends Phaser.Scene {
     text(this, VIEW_W / 2, 62, 'RESCUE', 24, '#ffd23f').setOrigin(0.5);
     this.add.sprite(VIEW_W / 2 - 26, 112, 'treecko', 4).setScale(2).setFlipX(true);
     this.add.sprite(VIEW_W / 2 + 26, 112, 'poochyena', 4).setScale(2);
-    const isTouch = document.body.classList.contains('touch');
-    this.prompt = text(this, VIEW_W / 2, 132, isTouch ? 'TAP TO START' : 'PRESS ENTER', 8).setOrigin(0.5);
-    if (!isTouch) {
-      text(this, VIEW_W / 2, 152, 'MOVE ARROWS  LIGHT J  HEAVY K', 8, '#cfcfcf').setOrigin(0.5);
-      text(this, VIEW_W / 2, 164, 'JUMP SPACE  SPECIAL L  BLOCK SHIFT', 8, '#cfcfcf').setOrigin(0.5);
-    }
+    this.isTouch = document.body.classList.contains('touch');
+    this.prompt = text(this, VIEW_W / 2, 136, this.isTouch ? 'TAP TO START' : 'PRESS ENTER', 8).setOrigin(0.5);
+    text(this, VIEW_W / 2, 156, this.isTouch ? 'TAP ? FOR HOW TO PLAY' : 'PRESS H FOR HOW TO PLAY', 8, '#cfcfcf').setOrigin(0.5);
+    document.body.classList.add('on-title');
+    this.events.once('shutdown', () => document.body.classList.remove('on-title'));
     this.t = 0;
     this.ready = false;
-    this.time.delayedCall(300, () => { this.ready = true; });
+    this.help = null;
+    this.time.delayedCall(300, () => {
+      this.ready = true;
+      // First visit: open the guide straight away
+      let seen = true;
+      try { seen = !!localStorage.getItem('hr_seen_help'); localStorage.setItem('hr_seen_help', '1'); } catch (e) { /* storage off */ }
+      if (!seen) this.openHelp();
+    });
+  }
+
+  helpPages() {
+    const controls = this.isTouch ? [
+      'MOVE     Touch the left half of',
+      '         the screen and drag',
+      'L        LIGHT: tap for a combo',
+      'H        HEAVY: slow, knocks down',
+      'J        JUMP: attack in the air',
+      'SP       SPECIAL: uses energy',
+      'BLK      BLOCK: hold to guard',
+    ] : [
+      'ARROWS   MOVE (or WASD)',
+      'J        LIGHT: tap for a combo',
+      'K        HEAVY: slow, knocks down',
+      'SPACE    JUMP: attack in the air',
+      'L        SPECIAL: uses energy',
+      'SHIFT    BLOCK: hold to guard',
+    ];
+    return [
+      { title: 'CONTROLS', lines: controls },
+      { title: 'FIGHTING', lines: [
+        'Enemies flash before they attack:',
+        'block, jump or step out of the way.',
+        '',
+        'Move up and down to line up with',
+        'enemies. You only hit your lane.',
+        '',
+        'Only two attack at once. The rest',
+        'wait their turn.',
+        '',
+        'Hits fill the blue energy bar.',
+        'Past the line, use SPECIAL.',
+      ] },
+      { title: 'THE ROUTE', lines: [
+        'Team grunts block the path. Beat',
+        'their Pokemon to move on, then',
+        'pick ONE of two held items: stand',
+        'on it and press LIGHT.',
+        '',
+        'Wild Pokemon leap out of the grass',
+        'and join the fight.',
+        '',
+        'People wait at the top of the path.',
+        'Walk up to them and press LIGHT:',
+        ' ACE TRAINER  battle for an item',
+        ' TRADER       swap an item',
+        ' TUTOR        learn a new move',
+      ] },
+      { title: 'GROWING STRONGER', lines: [
+        'Every KO gives EXP to level up.',
+        '',
+        'Lv16: evolve and upgrade your',
+        'LIGHT or HEAVY attack.',
+        'Lv36: evolve again for a new',
+        'SPECIAL.',
+        '',
+        'Items stack: two of the same is',
+        'stronger. They show top left.',
+        '',
+        'Clear a stage to rest (+50% HP)',
+        'and keep everything. Faint and',
+        'the run starts over.',
+      ] },
+    ];
+  }
+
+  openHelp() {
+    const pages = this.helpPages();
+    const D = 1000;
+    const bg = this.add.rectangle(0, 0, VIEW_W, VIEW_H, 0x101828, 0.96).setOrigin(0).setDepth(D);
+    const head = text(this, VIEW_W / 2, 10, '', 8, '#ffd23f').setOrigin(0.5, 0).setDepth(D);
+    const body = text(this, 14, 30, '', 8).setDepth(D).setLineSpacing(3);
+    const foot = text(this, VIEW_W / 2, VIEW_H - 14, this.isTouch ? 'TAP: NEXT   ?: CLOSE' : '< > PAGE   ENTER NEXT   H CLOSE', 8, '#9fd8ff')
+      .setOrigin(0.5).setDepth(D);
+    this.help = { page: 0, pages, parts: [bg, head, body, foot], head, body };
+    this.showHelpPage();
+  }
+
+  showHelpPage() {
+    const h = this.help;
+    const pg = h.pages[h.page];
+    h.head.setText(`HOW TO PLAY ${h.page + 1}/${h.pages.length}  -  ${pg.title}`);
+    h.body.setText(pg.lines.join('\n'));
+  }
+
+  closeHelp() {
+    for (const o of this.help.parts) o.destroy();
+    this.help = null;
+    this.ready = false;
+    this.time.delayedCall(200, () => { this.ready = true; });
   }
 
   update(_, delta) {
     input.update();
     this.t += delta;
     this.prompt.setVisible(Math.floor(this.t / 450) % 2 === 0);
-    if (this.ready && (input.anyPressed || input.pressed.start)) {
+    if (!this.ready) return;
+    const P = input.pressed;
+    if (this.help) {
+      const h = this.help;
+      if (P.help) { this.closeHelp(); return; }
+      if (P.left && h.page > 0) { h.page--; this.showHelpPage(); return; }
+      if (P.right || P.start || P.light || P.jump) {
+        if (h.page < h.pages.length - 1) { h.page++; this.showHelpPage(); } else this.closeHelp();
+      }
+      return;
+    }
+    if (P.help) { this.openHelp(); return; }
+    if (input.anyPressed || P.start) {
       run.carry = null;
       const s = parseInt(new URLSearchParams(window.location.search).get('stage'), 10);
       this.scene.start('game', { stage: STAGES[s] ? s : 1 });
