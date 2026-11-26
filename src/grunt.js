@@ -12,9 +12,10 @@ const TAUNTS = ['Go, POOCHYENA!', 'Team Aqua, attack!', 'Get that kid!', 'You wo
 const DEFEATS = ['Tch! Retreat!', 'No way!', 'I\'ll remember this!', 'Grr... fall back!'];
 
 export class Grunt {
-  constructor(scene, standX) {
+  constructor(scene, standX, boss = false) {
     this.scene = scene;
     this.standX = standX;
+    this.boss = boss;
     this.x = scene.camX + 340;            // walks in from the right edge
     this.y = GROUND_TOP - 6;              // on the grass bank above the path
     this.state = 'enter';
@@ -57,7 +58,7 @@ export class Grunt {
         if (this.x <= this.standX) {
           this.state = 'stand';
           this.t = 0;
-          this.say(TAUNTS[Math.floor(Math.random() * TAUNTS.length)]);
+          this.say(this.boss ? 'Go, my POOCHYENA!' : TAUNTS[Math.floor(Math.random() * TAUNTS.length)], this.boss ? 2400 : 1600);
         }
         break;
       }

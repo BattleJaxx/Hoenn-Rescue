@@ -117,6 +117,7 @@ export class GameScene extends Phaser.Scene {
     this.menu = null;
     this.aceNpc = null;
     this.specials = [];   // Seed Bomb and Rock Slide in flight
+    this.boss = null;
     this.params = new URLSearchParams(window.location.search);
     this.slots = SCENE_SLOTS.map((x) => ({ x, spawned: false }));
 
@@ -167,6 +168,7 @@ export class GameScene extends Phaser.Scene {
     this.goText = text(this, VIEW_W - 34, 66, 'GO', 8, '#ffd23f').setOrigin(1, 0).setScrollFactor(0).setDepth(D).setVisible(false);
     this.itemRow = [];
     this.movesText = text(this, 32, 44, '', 8, '#c8ffb0').setScrollFactor(0).setDepth(D + 1);
+    this.bossName = text(this, VIEW_W / 2, 159, '', 8, '#ffd23f').setOrigin(0.5, 0).setScrollFactor(0).setDepth(D + 1).setVisible(false);
 
     // Item choice panel (shown while standing on a dropped item)
     this.panel = this.add.container(0, 0).setScrollFactor(0).setDepth(D + 2).setVisible(false);
@@ -262,6 +264,15 @@ export class GameScene extends Phaser.Scene {
       this.drawBar(g, VIEW_W - 96, 13, 92, 5, e.hp / e.maxHp, 0xf85838);
     } else {
       this.enemyName.setVisible(false);
+    }
+
+    // Boss health bar along the bottom
+    const b = this.boss;
+    const showBoss = b && !b.removed && b.alive;
+    this.bossName.setVisible(!!showBoss);
+    if (showBoss) {
+      this.bossName.setText(`GRUNT'S ${b.name} Lv${b.level}`);
+      this.drawBar(g, 40, 170, VIEW_W - 80, 5, b.hp / b.maxHp, b.howled ? 0xff3030 : 0xf85838);
     }
 
     const showGo = this.goT > 0 && Math.floor(this.goT / 250) % 2 === 0;
@@ -491,11 +502,18 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ----- Grunt waves and item choice ---------------------------------------
-  startWave(count, level) {
+  startWave(count, level, boss) {
     this.locked = true;
     this.goT = 0;
     this.waveState = 'fighting';
-    this.grunt = new Grunt(this, this.camX + 236);
+    this.grunt = new Grunt(this, this.camX + 236, !!boss);
+    if (boss) {
+      // The grunt's partner: a boss Poochyena that charges in from the right
+      const e = new Poochyena(this, this.camX + VIEW_W + 30, (GROUND_TOP + GROUND_BOTTOM) / 2, { level: boss.level, fromGrunt: true, boss: true });
+      this.enemies.push(e);
+      this.boss = e;
+      this.cameras.main.shake(250, 0.006);
+    }
     for (let i = 0; i < count; i++) {
       const fromRight = i % 2 === 0;
       const x = fromRight ? this.camX + VIEW_W + 20 + i * 14 : this.camX - 20 - i * 14;
@@ -541,7 +559,7 @@ export class GameScene extends Phaser.Scene {
       const target = clamp(p.x - 130, 0, WORLD_W - VIEW_W);
       this.camX = Math.max(this.camX, target); // arcade-style: no scrolling back
       const next = WAVES[this.waveIdx];
-      if (next && p.x >= next.at) this.startWave(next.count, next.level);
+      if (next && p.x >= next.at) this.startWave(next.count, next.level, next.boss);
       // Random scenes appear as they come into view
       for (const slot of this.slots) {
         if (!slot.spawned && this.camX + VIEW_W + 30 >= slot.x) { slot.spawned = true; this.spawnScene(slot.x); }

@@ -18,7 +18,8 @@ export const GRAVITY = 620;             // px/s^2 for jumps and knockdowns
 export const WAVES = [
   { at: 170, count: 2, level: 7 },
   { at: 560, count: 3, level: 8 },
-  { at: 960, count: 4, level: 9 },
+  // Final wave: the grunt's partner is a boss Poochyena, bigger and higher level
+  { at: 960, count: 2, level: 9, boss: { level: 12 } },
 ];
 export const MAX_ATTACKERS = 2;         // arcade turn-taking: at most this many enemies attack at once
 
@@ -41,6 +42,19 @@ export const ATTACKS = {
   jumpLight: { dmg: 8, range: 22, depth: 10, stun: 300, push: 24 },
   jumpHeavy: { dmg: 12, range: 24, depth: 10, knockdown: true, shake: true },
   seed: { dmg: 5, stun: 160, push: 14 },
+};
+
+// The final grunt's boss Poochyena (Petalburg Woods). Damage scales with its level on top of these.
+export const BOSS_POOCHYENA = {
+  size: 1.4,                    // drawn 40% bigger
+  hpMult: 3.5,                  // on top of its level scaling
+  cooldown: 900,
+  tackle: { windup: 340, dash: 180, dashSpeed: 190, recovery: 450, dmg: 7, range: 24, depth: 10, stun: 300, push: 26 },
+  // Bite: slower, telegraphed in red, hits hard and makes you flinch for a long time
+  bite: { windup: 650, dash: 230, dashSpeed: 210, recovery: 700, dmg: 13, range: 26, depth: 11, stun: 800, push: 22 },
+  biteChance: 0.4,
+  howlAt: 0.5,                  // below half HP it Howls once: its attack rises
+  howlMult: 1.3,
 };
 
 export const POOCHYENA = {

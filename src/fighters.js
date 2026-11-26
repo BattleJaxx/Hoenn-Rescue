@@ -1,6 +1,6 @@
 import {
   SPRITE_SCALE, FEET_Y, GROUND_TOP, GROUND_BOTTOM, WORLD_W, GRAVITY,
-  PLAYER, ATTACKS, POOCHYENA,
+  PLAYER, ATTACKS, POOCHYENA, BOSS_POOCHYENA,
 } from './config.js';
 import { input } from './input.js';
 import { effects } from './items.js';
@@ -239,7 +239,7 @@ export class Fighter {
     if (this.flash > 0) s.setTintFill(0xffffff);
     else if (this.blockFlash > 0) s.setTintFill(0x9fc4ff);
     else if (this.state === 'block' && !drawn) s.setTint(0x9fc4ff);
-    else if (this.telegraph) s.setTint(Math.floor(this.t / 60) % 2 ? 0xffe070 : 0xffffff);
+    else if (this.telegraph) s.setTint(Math.floor(this.t / 60) % 2 ? (this.telegraphColor || 0xffe070) : 0xffffff);
     else if (this.frozenT > 0) s.setTint(0xa0f0ff);
     else if (this.focusGlow) s.setTint(Math.floor(this.t / 70) % 2 ? 0xffb070 : 0xffffff);
     else if (this.glowT > 0) s.setTint(Math.floor(this.glowT / 80) % 2 ? 0xfff6a0 : 0xffffff);
@@ -255,8 +255,8 @@ export class Fighter {
     s.setAlpha(alpha);
 
     // Shadow shrinks as we go higher
-    const sh = clamp(1.1 - this.z / 120, 0.5, 1.1);
-    this.shadow.setPosition(Math.round(this.x), Math.round(this.y)).setScale(sh, 1);
+    const sh = clamp(1.1 - this.z / 120, 0.5, 1.1) * (this.size || 1);
+    this.shadow.setPosition(Math.round(this.x), Math.round(this.y)).setScale(sh, this.size || 1);
   }
 
   showSlash(scale, tint) {
@@ -808,12 +808,27 @@ export class Enemy extends Fighter {
 export class Poochyena extends Enemy {
   constructor(scene, x, y, opts = {}) {
     super(scene, 'poochyena_actions', x, y, { ...POOCHYENA, name: 'POOCHYENA', species: 'poochyena', ...opts });
+    this.cur = POOCHYENA.bite;
+    if (opts.boss) {
+      // Boss: bigger, tougher, attacks on its own rhythm with Tackle and Bite
+      const Bz = BOSS_POOCHYENA;
+      this.isBoss = true;
+      this.size = Bz.size;
+      this.sprite.setScale(SPRITE_SCALE * Bz.size);
+      this.maxHp *= Bz.hpMult;
+      this.hp = this.maxHp;
+      this.noToken = true;
+      this.cooldown = 1500;
+      this.howled = false;
+    }
   }
+
+  showSlash(scale, tint) { super.showSlash((scale || 1) * (this.size || 1), tint); }
 
   // Pick a frame from the hand-drawn sheet (2 columns, rows listed in art/templates/README.md)
   frameFor() {
     const f = (row, col) => row * 2 + col;
-    const B = POOCHYENA.bite;
+    const B = this.cur;
     switch (this.state) {
       case 'enter':
       case 'emerge':
@@ -833,14 +848,45 @@ export class Poochyena extends Enemy {
   }
 
   think(dt, p) {
-    const B = POOCHYENA.bite;
+    const B = this.cur;
     const dx = p.x - this.x;
     const side = this.x < p.x ? -1 : 1;
 
+    // Boss: Howls once when its HP drops below half, raising its attack
+    if (this.isBoss && !this.howled && this.hp < this.maxHp * BOSS_POOCHYENA.howlAt && this.state === 'idle') {
+      this.howled = true;
+      this.dmgMult *= BOSS_POOCHYENA.howlMult;
+      this.setState('howl');
+      this.scene.floatText(this.x, this.y - 54, 'HOWL! ATTACK ROSE', '#ff7060');
+      this.scene.cameras.main.shake(300, 0.008);
+      return;
+    }
+
     switch (this.state) {
+      case 'howl':
+        this.offsetX = Math.floor(this.t / 50) % 2 ? 1 : -1;
+        this.telegraph = true;
+        this.telegraphColor = 0xff6050;
+        if (this.t > 900) { this.telegraph = false; this.setState('idle'); }
+        break;
+
       case 'idle': {
         this.facing = sign(dx);
         if (!p.alive) break;
+        if (this.isBoss) {
+          const Bz = BOSS_POOCHYENA;
+          this.cooldown -= dt * 1000;
+          const there = this.moveToward(p.x + side * 24, p.y, POOCHYENA.speed * 1.1, dt);
+          if (this.cooldown <= 0 && (there || (Math.abs(dx) < 30 && Math.abs(p.y - this.y) < 6))) {
+            const bite = Math.random() < Bz.biteChance;
+            this.cur = bite ? Bz.bite : Bz.tackle;
+            this.telegraphColor = bite ? 0xff4040 : 0xffe070;
+            if (bite) this.scene.floatText(this.x, this.y - 54, 'BITE!', '#ff7060');
+            this.telegraph = true;
+            this.setState('windup');
+          }
+          break;
+        }
         if (this.token) {
           // Close in and line up for a bite
           const there = this.moveToward(p.x + side * 20, p.y, POOCHYENA.speed, dt);
@@ -876,6 +922,7 @@ export class Poochyena extends Enemy {
       case 'recover':
         if (this.t > B.recovery) {
           this.scene.releaseToken(this);
+          if (this.isBoss) this.cooldown = BOSS_POOCHYENA.cooldown;
           this.setState('idle');
         }
         break;
