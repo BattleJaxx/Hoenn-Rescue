@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import {
-  VIEW_W, VIEW_H, GROUND_TOP, GROUND_BOTTOM, WORLD_W, WAVES, MAX_ATTACKERS, PLAYER, ATTACKS, WILD, FEET_Y,
+  VIEW_W, VIEW_H, GROUND_TOP, GROUND_BOTTOM, WORLD_W, MAX_ATTACKERS, PLAYER, ATTACKS, WILD, FEET_Y,
 } from './config.js';
 import { makeTextures } from './textures.js';
 import { Player, Poochyena, sign } from './fighters.js';
@@ -8,12 +8,15 @@ import { WILD_CLASSES, randomLaneY } from './wild.js';
 import { Grunt, Pickup } from './grunt.js';
 import { ITEMS, ITEM_IDS, itemDesc, rollItems, effects } from './items.js';
 import { input } from './input.js';
-import { MOVES, SCENE_SLOTS, SCENE_WEIGHTS, ACES, ACE_ITEMS } from './config.js';
+import { MOVES, SCENE_WEIGHTS, ACE_ITEMS } from './config.js';
+import { STAGES, LAST_STAGE, run } from './stages.js';
+import { VOLCANO_CLASSES } from './volcano.js';
 import { Npc } from './npc.js';
 import { ACE_CLASSES } from './aces.js';
 import { MOVES_DEF, rollTutorOffer } from './moves.js';
 import { SPECIES, START_LEVEL, expForLevel, expYield } from './leveling.js';
 
+const REST_HEAL = 0.5; // share of max HP restored between stages
 const FONT = '"Press Start 2P", monospace';
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
@@ -38,10 +41,11 @@ export class BootScene extends Phaser.Scene {
     this.load.image('fg-bush', 'assets/fg_bush.png');
     this.load.image('ground', 'assets/ground.png');
     this.load.spritesheet('poochyena', 'assets/poochyena.png', { frameWidth: 32, frameHeight: 32 });
-    for (const m of ['wurmple', 'shroomish', 'silcoon', 'grovyle', 'sceptile', 'shedinja', 'smeargle', 'spinda']) {
+    for (const m of ['wurmple', 'shroomish', 'silcoon', 'grovyle', 'sceptile', 'shedinja', 'smeargle', 'spinda',
+      'numel', 'camerupt', 'zubat', 'koffing', 'grimer', 'slugma', 'machop', 'torkoal', 'kecleon', 'sableye']) {
       this.load.spritesheet(m, `assets/${m}.png`, { frameWidth: 32, frameHeight: 32 });
     }
-    for (const k of ['aqua_grunt', 'ace_trainer_m', 'ace_trainer_f', 'trader', 'tutor']) {
+    for (const k of ['aqua_grunt', 'magma_grunt', 'magma_grunt_f', 'ace_trainer_m', 'ace_trainer_f', 'trader', 'tutor']) {
       this.load.spritesheet(k, `assets/${k}.png`, { frameWidth: 16, frameHeight: 32 });
     }
     for (const id of ITEM_IDS) this.load.image(`item_${id}`, `assets/items/${id}.png`);
@@ -79,7 +83,11 @@ export class TitleScene extends Phaser.Scene {
     input.update();
     this.t += delta;
     this.prompt.setVisible(Math.floor(this.t / 450) % 2 === 0);
-    if (this.ready && (input.anyPressed || input.pressed.start)) this.scene.start('game');
+    if (this.ready && (input.anyPressed || input.pressed.start)) {
+      run.carry = null;
+      const s = parseInt(new URLSearchParams(window.location.search).get('stage'), 10);
+      this.scene.start('game', { stage: STAGES[s] ? s : 1 });
+    }
   }
 }
 
@@ -87,6 +95,11 @@ export class TitleScene extends Phaser.Scene {
 // ---------------------------------------------------------------------------
 export class GameScene extends Phaser.Scene {
   constructor() { super('game'); }
+
+  init(data) {
+    this.stageNum = (data && STAGES[data.stage]) ? data.stage : 1;
+    this.stage = STAGES[this.stageNum];
+  }
 
   create() {
     this.camX = 0;
@@ -119,7 +132,9 @@ export class GameScene extends Phaser.Scene {
     this.specials = [];   // Seed Bomb and Rock Slide in flight
     this.boss = null;
     this.params = new URLSearchParams(window.location.search);
-    this.slots = SCENE_SLOTS.map((x) => ({ x, spawned: false }));
+    this.slots = this.stage.slots.map((x) => ({ x, spawned: false }));
+    this.hazards = [];    // geysers and heat-wave rings
+    this.smoke = [];
 
     this.cameras.main.setBounds(0, 0, WORLD_W, VIEW_H);
     this.cameras.main.setRoundPixels(true);
@@ -130,22 +145,43 @@ export class GameScene extends Phaser.Scene {
     this.player.facing = 1;
 
     this.buildHud();
-    this.applyTestLevel();
-    this.banner = text(this, VIEW_W / 2, 70, 'STAGE 1', 16, '#ffd23f').setOrigin(0.5).setScrollFactor(0).setDepth(20000);
-    this.banner2 = text(this, VIEW_W / 2, 92, 'PETALBURG WOODS', 8).setOrigin(0.5).setScrollFactor(0).setDepth(20000);
+    // Test params only apply to a fresh run, not to a stage carried over from the last
+    if (!this.applyCarry()) this.applyTestLevel();
+    this.banner = text(this, VIEW_W / 2, 70, `STAGE ${this.stageNum}`, 16, '#ffd23f').setOrigin(0.5).setScrollFactor(0).setDepth(20000);
+    this.banner2 = text(this, VIEW_W / 2, 92, this.stage.name, 8).setOrigin(0.5).setScrollFactor(0).setDepth(20000);
   }
 
   // ----- Scenery ----------------------------------------------------------
   buildBackground() {
-    this.bgFar = this.add.tileSprite(0, 0, VIEW_W, 110, 'bg-far').setOrigin(0).setScrollFactor(0).setDepth(-40);
-    this.bgTrunks = this.add.tileSprite(0, -14, VIEW_W, 120, 'bg-trunks').setOrigin(0).setScrollFactor(0).setDepth(-30);
-    this.ground = this.add.tileSprite(0, GROUND_TOP - 12, VIEW_W, 76, 'ground').setOrigin(0).setScrollFactor(0).setDepth(-20);
+    const B = this.stage.bg;
+    this.bgFar = this.add.tileSprite(0, 0, VIEW_W, 110, B.far).setOrigin(0).setScrollFactor(0).setDepth(-40);
+    this.bgTrunks = this.add.tileSprite(0, -14, VIEW_W, 120, B.mid).setOrigin(0).setScrollFactor(0).setDepth(-30);
+    this.ground = this.add.tileSprite(0, GROUND_TOP - 12, VIEW_W, 76, B.ground).setOrigin(0).setScrollFactor(0).setDepth(-20);
     // Fill below the ground strip with the colour of its bottom-left pixel
-    const gTex = this.textures.get('ground').getSourceImage();
-    const under = this.textures.getPixel(0, gTex.height - 1, 'ground');
+    const gTex = this.textures.get(B.ground).getSourceImage();
+    const under = this.textures.getPixel(0, gTex.height - 1, B.ground);
     this.add.rectangle(0, GROUND_TOP - 12 + gTex.height, VIEW_W, VIEW_H, under ? under.color : 0x58a043)
       .setOrigin(0).setScrollFactor(0).setDepth(-21);
-    this.fg = this.add.tileSprite(0, VIEW_H - 24, VIEW_W, 24, 'fg-bush').setOrigin(0).setScrollFactor(0).setDepth(9000);
+    this.fg = this.add.tileSprite(0, VIEW_H - 24, VIEW_W, 24, B.fg).setOrigin(0).setScrollFactor(0).setDepth(9000);
+  }
+
+  // Falling ash (Mt. Chimney)
+  updateAsh(dt) {
+    if (!this.stage.ash) return;
+    if (!this.ash) {
+      this.ash = [];
+      for (let i = 0; i < 40; i++) {
+        const img = this.add.image(Math.random() * VIEW_W, Math.random() * VIEW_H, 'ash')
+          .setScrollFactor(0).setDepth(9100).setAlpha(0.5 + Math.random() * 0.4);
+        this.ash.push({ img, vx: -6 - Math.random() * 8, vy: 10 + Math.random() * 14, ph: Math.random() * 6 });
+      }
+    }
+    for (const a of this.ash) {
+      a.img.x += (a.vx + Math.sin(this.time.now / 600 + a.ph) * 6) * dt;
+      a.img.y += a.vy * dt;
+      if (a.img.y > VIEW_H) { a.img.y = -2; a.img.x = Math.random() * (VIEW_W + 40); }
+      if (a.img.x < -4) a.img.x = VIEW_W + 2;
+    }
   }
 
   updateBackground() {
@@ -271,7 +307,7 @@ export class GameScene extends Phaser.Scene {
     const showBoss = b && !b.removed && b.alive;
     this.bossName.setVisible(!!showBoss);
     if (showBoss) {
-      this.bossName.setText(`GRUNT'S ${b.name} Lv${b.level}`);
+      this.bossName.setText(`${this.bossTrainer || 'GRUNT'}'S ${b.name} Lv${b.level}`);
       this.drawBar(g, 40, 170, VIEW_W - 80, 5, b.hp / b.maxHp, b.howled ? 0xff3030 : 0xf85838);
     }
 
@@ -343,7 +379,7 @@ export class GameScene extends Phaser.Scene {
 
   enemyHit(enemy, atk, hitSet) {
     const p = this.player;
-    if (hitSet.has(p) || !p.alive) return;
+    if (hitSet.has(p) || !p.alive) return null;
     if (!this.overlaps(enemy, p, atk)) return;
     const r = p.takeHit(enemy, { ...atk, dmg: atk.dmg * (enemy.dmgMult || 1) });
     if (!r) return;
@@ -352,6 +388,7 @@ export class GameScene extends Phaser.Scene {
       this.hitstop = 60;
       this.spark((enemy.x + p.x) / 2, p.y - p.z - 14);
     }
+    return r;
   }
 
   sfxBlock(f) {
@@ -437,6 +474,75 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  // Explosion centred on a point (Koffing's Self-Destruct)
+  blastPlayer(x, y, rx, ry, atk, owner) {
+    const g = this.add.graphics().setDepth(9500);
+    g.fillStyle(0xffe070, 0.9).fillEllipse(x, y - 10, rx * 2, ry * 2 + 20);
+    this.tweens.add({ targets: g, alpha: 0, scale: 1.2, duration: 300, onComplete: () => g.destroy() });
+    for (let i = 0; i < 6; i++) this.spark(x + (Math.random() - 0.5) * rx, y - 10 - Math.random() * 20, 0xff9040);
+    const p = this.player;
+    if (p.alive && Math.abs(p.x - x) < rx && Math.abs(p.y - y) < ry && p.z < 30) {
+      p.takeHit({ x, y }, { ...atk, owner, stun: 400, push: 30 });
+    }
+  }
+
+  // Camerupt's Eruption: marked spots burst into lava columns after a delay
+  spawnGeysers(owner, spots, G) {
+    for (const s of spots) {
+      const mark = this.add.image(s.x, s.y, 'geyser-mark').setDepth(-4);
+      this.hazards.push({ kind: 'geyser', x: s.x, y: s.y, t: 0, delay: G.delay, mark, G, owner });
+    }
+  }
+
+  // Torkoal's Heat Wave: a ring along the ground that grows outwards. Jump over it.
+  heatWave(owner, H) {
+    const g = this.add.graphics().setDepth(-3);
+    this.hazards.push({ kind: 'ring', x: owner.x, y: owner.y, r: 6, H, g, owner, hit: false });
+  }
+
+  // Smokescreen: thick smoke drifts across the screen for a while
+  smokescreen(ms) {
+    for (let i = 0; i < 7; i++) {
+      const img = this.add.image(20 + i * 48 + Math.random() * 10, 70 + Math.random() * 80, 'smoke-big')
+        .setScrollFactor(0).setDepth(9300).setAlpha(0).setScale(1.4);
+      this.tweens.add({ targets: img, alpha: 0.85, duration: 500 });
+      this.tweens.add({ targets: img, alpha: 0, delay: ms, duration: 800, onComplete: () => img.destroy() });
+      this.tweens.add({ targets: img, x: img.x - 20 + Math.random() * 40, duration: ms + 800 });
+    }
+  }
+
+  updateHazards(dt) {
+    const p = this.player;
+    const ms = dt * 1000;
+    for (const h of this.hazards) {
+      if (h.kind === 'geyser') {
+        h.t += ms;
+        if (h.t < h.delay) {
+          h.mark.setVisible(Math.floor(h.t / (h.t > h.delay * 0.6 ? 60 : 120)) % 2 === 0);
+        } else if (!h.col) {
+          h.mark.destroy();
+          h.col = this.add.image(h.x, h.y, 'lava-col').setOrigin(0.5, 1).setDepth(10 + h.y).setScale(1, 0.1);
+          this.tweens.add({ targets: h.col, scaleY: 1, duration: 90, yoyo: true, hold: 260, onComplete: () => { h.col.destroy(); h.done = true; } });
+          this.cameras.main.shake(80, 0.004);
+          if (p.alive && Math.abs(p.x - h.x) < h.G.radius && Math.abs(p.y - h.y) < h.G.radius * 0.5 && p.z < 40) {
+            p.takeHit({ x: h.x, y: h.y }, { dmg: h.G.dmg, knockdown: true, unblockable: true, owner: h.owner, burn: { total: 5, ms: 3000 } });
+          }
+        }
+      } else if (h.kind === 'ring') {
+        h.r += 110 * dt;
+        h.g.clear();
+        h.g.lineStyle(3, 0xff7030, 1 - h.r / h.H.radius).strokeEllipse(h.x, h.y, h.r * 2, h.r * 0.8);
+        const d = Math.hypot(p.x - h.x, (p.y - h.y) * 2.5);
+        if (!h.hit && p.alive && Math.abs(d - h.r) < 6 && p.z < 6) {
+          h.hit = true;
+          p.takeHit({ x: h.x, y: h.y }, { dmg: h.H.dmg, stun: 300, push: 18, unblockable: true, owner: h.owner, burn: { total: 4, ms: 3000 } });
+        }
+        if (h.r >= h.H.radius) { h.g.destroy(); h.done = true; }
+      }
+    }
+    this.hazards = this.hazards.filter((h) => !h.done);
+  }
+
   updateEnemyShots(dt) {
     const p = this.player;
     for (const s of this.enemyShots) {
@@ -455,6 +561,14 @@ export class GameScene extends Phaser.Scene {
     this.enemyShots = this.enemyShots.filter((s) => s.life > 0);
   }
 
+  // Lingering ground hazards: smog clouds (hit unless high in the air), lava/sludge puddles (jump to avoid)
+  spawnHazard(owner, H) {
+    const img = this.add.image(owner.x, owner.y, H.texture).setAlpha(0);
+    img.setDepth(H.flat ? -5 : 10 + owner.y + 2);
+    this.tweens.add({ targets: img, alpha: H.flat ? 1 : 0.85, duration: 200 });
+    this.clouds.push({ img, x: owner.x, y: owner.y, life: H.life, tickT: 0, S: H, owner });
+  }
+
   spawnSporeCloud(owner, S) {
     const img = this.add.image(owner.x, owner.y - 6, 'spore').setDepth(10 + owner.y + 2).setAlpha(0);
     this.tweens.add({ targets: img, alpha: 0.9, duration: 200 });
@@ -467,9 +581,10 @@ export class GameScene extends Phaser.Scene {
     for (const c of this.clouds) {
       c.life -= ms;
       c.tickT -= ms;
-      c.img.setPosition(Math.round(c.x + Math.sin(this.time.now / 300) * 2), Math.round(c.y - 6));
+      if (c.S.flat) c.img.setPosition(Math.round(c.x), Math.round(c.y));
+      else c.img.setPosition(Math.round(c.x + Math.sin(this.time.now / 300) * 2), Math.round(c.y - 6));
       if (c.life < 400) c.img.setAlpha(Math.max(0, c.life / 400) * 0.9);
-      const inside = Math.abs(p.x - c.x) < c.S.radiusX && Math.abs(p.y - c.y) < c.S.radiusY && p.z < 20;
+      const inside = Math.abs(p.x - c.x) < c.S.radiusX && Math.abs(p.y - c.y) < c.S.radiusY && p.z < (c.S.flat ? 4 : 20);
       if (inside && c.tickT <= 0 && p.alive) {
         c.tickT = c.S.tick;
         p.takeHit({ x: c.x, y: c.y }, { dmg: c.S.dmg * (c.owner.dmgMult || 1), unblockable: true, noStagger: true, owner: c.owner });
@@ -502,25 +617,37 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ----- Grunt waves and item choice ---------------------------------------
-  startWave(count, level, boss) {
+  // Any species by name. Poochyena is the one class that has both grunt and wild forms built in.
+  makeEnemy(species, x, y, opts) {
+    if (species === 'poochyena') return new Poochyena(this, x, y, opts);
+    const Cls = VOLCANO_CLASSES[species] || WILD_CLASSES[species];
+    return new Cls(this, x, y, opts);
+  }
+
+  startWave(wave) {
+    const { level, mons, boss } = wave;
     this.locked = true;
     this.goT = 0;
     this.waveState = 'fighting';
-    this.grunt = new Grunt(this, this.camX + 236, !!boss);
+    this.grunt = new Grunt(this, this.camX + 236, boss || null, this.stage.grunt);
     if (boss) {
-      // The grunt's partner: a boss Poochyena that charges in from the right
-      const e = new Poochyena(this, this.camX + VIEW_W + 30, (GROUND_TOP + GROUND_BOTTOM) / 2, { level: boss.level, fromGrunt: true, boss: true });
+      // The trainer's ace charges in from the right
+      const e = this.makeEnemy(boss.species, this.camX + VIEW_W + 30, (GROUND_TOP + GROUND_BOTTOM) / 2,
+        { level: boss.level, fromGrunt: true, boss: true });
+      e.fromGrunt = true;
       this.enemies.push(e);
       this.boss = e;
+      this.bossTrainer = boss.trainer;
       this.cameras.main.shake(250, 0.006);
     }
-    for (let i = 0; i < count; i++) {
+    mons.forEach((species, i) => {
       const fromRight = i % 2 === 0;
       const x = fromRight ? this.camX + VIEW_W + 20 + i * 14 : this.camX - 20 - i * 14;
       const y = GROUND_TOP + 6 + Math.random() * (GROUND_BOTTOM - GROUND_TOP - 12);
-      const e = new Poochyena(this, x, y, { level, fromGrunt: true });
+      const e = this.makeEnemy(species, x, y, { level, fromGrunt: true });
+      e.fromGrunt = true;
       this.enemies.push(e);
-    }
+    });
   }
 
   dropItems(x, count = 2, onPicked = null) {
@@ -547,7 +674,7 @@ export class GameScene extends Phaser.Scene {
     this.waveState = 'none';
     this.locked = false;
     this.waveIdx++;
-    if (this.waveIdx >= WAVES.length) this.time.delayedCall(700, () => this.stageClear());
+    if (this.waveIdx >= this.stage.waves.length) this.time.delayedCall(700, () => this.stageClear());
     else this.goT = 3000;
   }
 
@@ -558,8 +685,8 @@ export class GameScene extends Phaser.Scene {
     if (this.waveState === 'none') {
       const target = clamp(p.x - 130, 0, WORLD_W - VIEW_W);
       this.camX = Math.max(this.camX, target); // arcade-style: no scrolling back
-      const next = WAVES[this.waveIdx];
-      if (next && p.x >= next.at) this.startWave(next.count, next.level, next.boss);
+      const next = this.stage.waves[this.waveIdx];
+      if (next && p.x >= next.at) this.startWave(next);
       // Random scenes appear as they come into view
       for (const slot of this.slots) {
         if (!slot.spawned && this.camX + VIEW_W + 30 >= slot.x) { slot.spawned = true; this.spawnScene(slot.x); }
@@ -610,9 +737,10 @@ export class GameScene extends Phaser.Scene {
     if (wildAlive >= WILD.maxAlive) return;
 
     // Pick a species by the encounter table
-    const total = WILD.table.reduce((s, r) => s + r.weight, 0);
+    const table = this.stage.wild.table;
+    const total = table.reduce((s, r) => s + r.weight, 0);
     let roll = Math.random() * total;
-    const species = WILD.table.find((r) => (roll -= r.weight) < 0).species;
+    const species = table.find((r) => (roll -= r.weight) < 0).species;
 
     // Rustle a patch of tall grass first, away from the player
     const p = this.player;
@@ -650,10 +778,9 @@ export class GameScene extends Phaser.Scene {
     w.t -= dt * 1000;
     if (w.t > 0) return;
     this.pendingWild = null;
-    const opts = { emerge: true, emergeToY: randomLaneY(), level: Phaser.Math.Between(...WILD.levels) };
-    const e = w.species === 'poochyena'
-      ? new Poochyena(this, w.x, w.y, { ...opts, wild: true })
-      : new WILD_CLASSES[w.species](this, w.x, w.y, opts);
+    const opts = { emerge: true, emergeToY: randomLaneY(), level: Phaser.Math.Between(...this.stage.wild.levels), wild: true };
+    const e = this.makeEnemy(w.species, w.x, w.y, opts);
+    e.wild = true;
     this.enemies.push(e);
   }
 
@@ -784,7 +911,7 @@ export class GameScene extends Phaser.Scene {
       kind = Object.keys(weights).find((k) => (roll -= weights[k]) < 0);
     }
     if (kind === 'ace') {
-      const pool = ACES[1];
+      const pool = this.stage.aces;
       const forcedAce = pool.find((a) => a.pokemon === this.params.get('ace'));
       const ace = forcedAce || pool[Math.floor(Math.random() * pool.length)];
       const tex = Math.random() < 0.5 ? 'ace_trainer_m' : 'ace_trainer_f';
@@ -1003,14 +1130,52 @@ export class GameScene extends Phaser.Scene {
     if (next.takeHit({ x: from.x, y: from.y }, { dmg, stun: 250, push: 6 })) this.noteTarget(next);
   }
 
+  // ----- Run carry-over between stages ----------------------------------------
+  snapshotRun() {
+    const p = this.player;
+    run.carry = {
+      form: p.form, level: p.level, exp: p.exp, upgrades: { ...p.upgrades }, items: { ...p.items },
+      hpFrac: p.hp / p.maxHp, energy: p.energy,
+    };
+  }
+
+  applyCarry() {
+    const c = run.carry;
+    if (!c || this.stageNum === 1) return false;
+    const p = this.player;
+    p.level = c.level;
+    p.exp = c.exp;
+    p.upgrades = { ...c.upgrades };
+    p.items = { ...c.items };
+    p.energy = c.energy;
+    if (c.form !== p.form) p.evolve(c.form);
+    p.recalcStats(true);
+    // Rest between stages: back up by half your max HP
+    p.hp = Math.min(p.maxHp, p.maxHp * (c.hpFrac + REST_HEAL));
+    this.refreshItemRow();
+    return true;
+  }
+
   stageClear() {
     this.phase = 'clear';
     this.phaseT = 0;
-    this.banner.setText('STAGE CLEAR').setColor('#ffd23f').setVisible(true);
-    this.banner2.setText(document.body.classList.contains('touch') ? 'TAP TO PLAY AGAIN' : 'PRESS ENTER TO PLAY AGAIN').setVisible(true);
+    const touch = document.body.classList.contains('touch');
+    if (this.stageNum < LAST_STAGE) {
+      this.snapshotRun();
+      this.nextStage = this.stageNum + 1;
+      this.banner.setText('STAGE CLEAR').setColor('#ffd23f').setVisible(true);
+      this.banner2.setText(`REST: +${REST_HEAL * 100}% HP  -  ${touch ? 'TAP' : 'PRESS ENTER'}`).setVisible(true);
+    } else {
+      run.carry = null;
+      this.nextStage = 1;
+      this.banner.setText('TO BE CONTINUED').setColor('#ffd23f').setVisible(true);
+      this.banner2.setText(touch ? 'TAP TO PLAY AGAIN' : 'PRESS ENTER TO PLAY AGAIN').setVisible(true);
+    }
   }
 
   gameOver() {
+    run.carry = null;
+    this.nextStage = 1;
     this.phase = 'over';
     this.phaseT = 0;
     this.banner.setText('GAME OVER').setColor('#f85838').setVisible(true);
@@ -1033,7 +1198,7 @@ export class GameScene extends Phaser.Scene {
     }
     if ((this.phase === 'over' || this.phase === 'clear') && this.phaseT > 900
       && (input.anyPressed || input.pressed.start)) {
-      this.scene.restart();
+      this.scene.restart({ stage: this.nextStage || 1 });
       return;
     }
 
@@ -1070,6 +1235,7 @@ export class GameScene extends Phaser.Scene {
       this.updateSeeds(dt);
       this.updateEnemyShots(dt);
       this.updateClouds(dt);
+      this.updateHazards(dt);
       this.updateSpecials(dt);
       if (this.phase === 'play') this.updateNpcs(dt);
       this.updateDirector(dt);
@@ -1085,6 +1251,7 @@ export class GameScene extends Phaser.Scene {
     this.player.render();
     for (const e of this.enemies) e.render();
     this.updateBackground();
+    this.updateAsh(dt);
     this.updateHud();
   }
 }

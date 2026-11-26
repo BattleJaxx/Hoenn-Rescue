@@ -188,7 +188,8 @@ export class Fighter {
 
   slowFor(ms) { this.slowedT = Math.max(this.slowedT, ms); }
 
-  poison(total, ms) {
+  poison(total, ms, kind = 'poison') {
+    this.poisonKind = kind;
     this.poisonT = ms;
     this.poisonRate = total / (ms / 1000);
     this.poisonAcc = 0;
@@ -244,7 +245,7 @@ export class Fighter {
     else if (this.focusGlow) s.setTint(Math.floor(this.t / 70) % 2 ? 0xffb070 : 0xffffff);
     else if (this.glowT > 0) s.setTint(Math.floor(this.glowT / 80) % 2 ? 0xfff6a0 : 0xffffff);
     else if (this.tint) s.setTint(this.tint);
-    else if (this.poisonT > 0) s.setTint(0xe0a0f0);
+    else if (this.poisonT > 0) s.setTint(this.poisonKind === 'burn' ? 0xffb080 : 0xe0a0f0);
     else if (this.slowedT > 0) s.setTint(0xfff090);
     else s.clearTint();
 
@@ -423,6 +424,13 @@ export class Player extends Fighter {
   onHurt(atk) {
     this.furyStacks = 0;
     this.focusGlow = false;
+    if (atk && atk.burn) {
+      this.poison(atk.burn.total * (atk.burnMult || 1), atk.burn.ms, 'burn');
+      this.scene.floatText(this.x, this.y - 48, 'BURNED', '#ff9040');
+    }
+    if (atk && atk.poisonStatus) {
+      this.poison(atk.poisonStatus, 3000, 'poison');
+    }
     if (atk && atk.confuse) this.confuse(atk.confuse);
     const secs = effects.ejectSeconds(this.items);
     if (secs > 0) {

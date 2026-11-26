@@ -231,3 +231,205 @@ export class Spinda extends Enemy {
 }
 
 export const ACE_CLASSES = { shedinja: Shedinja, smeargle: Smeargle, spinda: Spinda };
+
+// ===========================================================================
+// Stage 2 (Mt. Chimney) Aces
+// ===========================================================================
+
+// Kecleon: Color Change camouflage. Nearly invisible until it attacks or gets hit.
+export class Kecleon extends Enemy {
+  constructor(scene, x, y, opts) {
+    super(scene, 'kecleon', x, y, { name: 'KECLEON', species: 'kecleon', hp: 30, speed: 46, ...opts });
+    this.noToken = true;
+    this.cooldown = 1600;
+    this.swipe = { dmg: 5, range: 18, depth: 8, stun: 220, push: 14 };
+  }
+
+  render() {
+    super.render();
+    // Visible while attacking, hurt or knocked down; otherwise a faint shimmer
+    const shown = ['windup', 'swipes', 'recover', 'hurt', 'launched', 'down', 'getup', 'dead'].includes(this.state) || this.flash > 0;
+    if (!shown) this.sprite.setAlpha(0.08 + (Math.sin(this.scene.time.now / 120) + 1) * 0.04);
+    else if (this.state !== 'dead') this.sprite.setAlpha(1);
+    this.shadow.setAlpha(shown ? 1 : 0.3);
+  }
+
+  think(dt, p) {
+    this.cooldown -= dt * 1000;
+    const dx = p.x - this.x;
+    switch (this.state) {
+      case 'idle': {
+        this.facing = sign(dx);
+        if (!p.alive) break;
+        // Sneaks around to come at you from behind when it can
+        const side = p.facing > 0 ? -1 : 1;
+        const there = this.moveToward(p.x + side * 22, p.y, this.cfg.speed, dt);
+        if (this.cooldown <= 0 && (there || (Math.abs(dx) < 26 && Math.abs(p.y - this.y) < 6))) {
+          this.telegraph = true;
+          this.setState('windup');
+        }
+        break;
+      }
+      case 'windup':
+        if (this.t > 420) { this.telegraph = false; this.n = -1; this.setState('swipes'); }
+        break;
+      case 'swipes':
+        if (Math.floor(this.t / 110) !== this.n) { this.n = Math.floor(this.t / 110); this.hitSet = new Set(); }
+        this.showSlash(0.9, 0xd070ff);
+        this.scene.enemyHit(this, this.swipe, this.hitSet);
+        if (this.t > 330) this.setState('recover');
+        break;
+      case 'recover':
+        if (this.t > 1100) { this.cooldown = 900; this.setState('idle'); }
+        break;
+    }
+  }
+}
+
+// Sableye: Knock Off steals one of your held items. Beat it to get the item back.
+export class Sableye extends Enemy {
+  constructor(scene, x, y, opts) {
+    super(scene, 'sableye', x, y, { name: 'SABLEYE', species: 'sableye', hp: 28, speed: 58, ...opts });
+    this.noToken = true;
+    this.cooldown = 1400;
+    this.stolen = [];
+    this.knockOff = { windup: 380, dash: 200, dashSpeed: 190, dmg: 7, range: 18, depth: 8, stun: 300, push: 22 };
+    this.icon = null;
+  }
+
+  onKO() {
+    // Give back everything it stole
+    const p = this.scene.player;
+    for (const id of this.stolen) p.addItem(id);
+    if (this.stolen.length) {
+      this.scene.refreshItemRow();
+      this.scene.floatText(p.x, p.y - 48, 'GOT YOUR ITEMS BACK!', '#ffd23f');
+    }
+    this.stolen = [];
+    this.icon?.destroy();
+    super.onKO();
+  }
+
+  render() {
+    super.render();
+    if (this.icon) this.icon.setPosition(Math.round(this.x), Math.round(this.y - this.z - 38)).setVisible(!this.removed);
+  }
+
+  destroy() { this.icon?.destroy(); super.destroy(); }
+
+  think(dt, p) {
+    this.cooldown -= dt * 1000;
+    const dx = p.x - this.x;
+    const B = this.knockOff;
+    switch (this.state) {
+      case 'idle':
+        this.facing = sign(dx);
+        if (!p.alive) break;
+        if (this.fleeT > 0) {
+          // Runs off with its prize for a while
+          this.fleeT -= dt * 1000;
+          this.moveToward(this.x - sign(dx) * 60, clamp(p.y + 40 * Math.sin(this.t / 300), GROUND_TOP, GROUND_BOTTOM), this.cfg.speed, dt);
+          break;
+        }
+        this.moveToward(p.x + (this.x < p.x ? -1 : 1) * 22, p.y, this.cfg.speed, dt);
+        if (this.cooldown <= 0 && Math.abs(dx) < 28 && Math.abs(p.y - this.y) < 6) {
+          this.telegraph = true;
+          this.setState('windup');
+        }
+        break;
+      case 'windup':
+        if (this.t > B.windup) { this.telegraph = false; this.hitSet = new Set(); this.setState('knockOff'); }
+        break;
+      case 'knockOff': {
+        this.x += this.facing * B.dashSpeed * dt;
+        this.moving = true;
+        this.showSlash(0.9, 0x9070d0);
+        const r = this.scene.enemyHit(this, B, this.hitSet);
+        if (r === 'hit') this.steal(p);
+        if (this.t > B.dash) this.setState('recover');
+        break;
+      }
+      case 'recover':
+        if (this.t > 600) { this.cooldown = 1200; this.setState('idle'); }
+        break;
+    }
+  }
+
+  steal(p) {
+    const owned = Object.keys(p.items).filter((id) => p.items[id] > 0);
+    if (!owned.length) return;
+    const id = owned[Math.floor(Math.random() * owned.length)];
+    p.items[id] -= 1;
+    if (!p.items[id]) delete p.items[id];
+    p.recalcStats(false);
+    this.stolen.push(id);
+    this.scene.refreshItemRow();
+    this.scene.floatText(this.x, this.y - 44, 'KNOCK OFF! ITEM STOLEN!', '#ff7060');
+    this.icon?.destroy();
+    this.icon = this.scene.add.image(this.x, this.y - 38, `item_${id}`).setScale(0.75).setDepth(19000);
+    this.fleeT = 2000;
+  }
+}
+
+// Torkoal (Ace): Shell up blocks hits from the front; Smokescreen hides the arena;
+// Heat Wave rings out across the ground (jump over it).
+export class TorkoalAce extends Enemy {
+  constructor(scene, x, y, opts) {
+    super(scene, 'torkoal', x, y, { name: 'TORKOAL', species: 'torkoal', hp: 34, speed: 20, ...opts });
+    this.noToken = true;
+    this.cooldown = 1500;
+    this.smokeCooldown = 2000;
+  }
+
+  takeHit(src, atk) {
+    // In its shell, hits from the front bounce off
+    if (this.state === 'shell' && (src.x - this.x) * this.facing > 0) {
+      this.scene.spark(this.x + this.facing * 8, this.y - 14, 0x909090);
+      return 'blocked';
+    }
+    return super.takeHit(src, atk);
+  }
+
+  think(dt, p) {
+    const ms = dt * 1000;
+    this.cooldown -= ms;
+    this.smokeCooldown -= ms;
+    const dx = p.x - this.x;
+    switch (this.state) {
+      case 'idle':
+        this.facing = sign(dx);
+        this.tint = null;
+        if (!p.alive) break;
+        if (this.smokeCooldown <= 0) {
+          this.scene.floatText(this.x, this.y - 44, 'SMOKESCREEN', '#c8c8c8');
+          this.scene.smokescreen(5000);
+          this.smokeCooldown = 9000;
+        } else if (this.cooldown <= 0) {
+          if (Math.abs(dx) < 70 && Math.random() < 0.5) {
+            this.scene.floatText(this.x, this.y - 44, 'HEAT WAVE', '#ff9040');
+            this.telegraph = true; this.telegraphColor = 0xff7040;
+            this.setState('heatWaveWindup');
+          } else {
+            this.scene.floatText(this.x, this.y - 44, 'SHELL', '#c8c8c8');
+            this.setState('shell');
+          }
+        } else this.moveToward(p.x + (this.x < p.x ? -1 : 1) * 50, p.y, this.cfg.speed, dt);
+        break;
+      case 'shell':
+        this.facing = sign(dx); // keeps its shell turned to you
+        this.tint = 0x909090;
+        if (this.t > 2200) { this.cooldown = 1200; this.tint = null; this.setState('idle'); }
+        break;
+      case 'heatWaveWindup':
+        if (this.t > 700) {
+          this.telegraph = false;
+          this.scene.heatWave(this, { dmg: 10 * this.dmgMult, radius: 90 });
+          this.cooldown = 1800;
+          this.setState('idle');
+        }
+        break;
+    }
+  }
+}
+
+Object.assign(ACE_CLASSES, { kecleon: Kecleon, sableye: Sableye, torkoal_ace: TorkoalAce });

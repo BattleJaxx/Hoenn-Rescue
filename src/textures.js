@@ -236,6 +236,135 @@ export function makeTextures(scene) {
     ctx.fillRect(2, 2, 3, 2);
   });
 
+  // ----- Mt. Chimney -----
+  canvasTex(scene, 'mc-far', 256, 110, (ctx, w, h) => {
+    const r = rng(41);
+    const bands = ['#3a1a1a', '#5a2418', '#7a3018', '#9a4420', '#b85a28'];
+    bands.forEach((c, i) => { ctx.fillStyle = c; ctx.fillRect(0, i * 18, w, 22); });
+    // distant volcano with a smoke plume
+    ctx.fillStyle = '#2a1414';
+    for (let y = 30; y < h; y++) {
+      const half = Math.floor((y - 30) * 1.4);
+      ctx.fillRect(128 - 14 - half, y, 28 + half * 2, 1);
+    }
+    ctx.fillStyle = '#d84a20';
+    ctx.fillRect(116, 30, 24, 2);
+    for (let i = 0; i < 40; i++) {
+      ctx.fillStyle = r() < 0.5 ? 'rgba(80,70,70,0.7)' : 'rgba(110,100,100,0.6)';
+      const y = 4 + Math.floor(r() * 26);
+      ctx.fillRect(110 + Math.floor(r() * 40) + (30 - y) * 0.6, y, 6 + Math.floor(r() * 8), 4);
+    }
+    // far ridge
+    ctx.fillStyle = '#1e0e0e';
+    for (let x = 0; x < w; x++) {
+      const y = 88 + Math.floor(Math.sin(x / 14) * 4 + Math.sin(x / 5) * 2);
+      ctx.fillRect(x, y, 1, h - y);
+    }
+  });
+
+  canvasTex(scene, 'mc-mid', 192, 120, (ctx, w, h) => {
+    const r = rng(43);
+    // jagged dark crags, transparent sky above
+    const peaks = [[0, 70], [30, 44], [56, 66], [84, 36], [118, 60], [150, 40], [176, 64], [192, 70]];
+    for (let x = 0; x < w; x++) {
+      let i = 0;
+      while (peaks[i + 1][0] < x) i++;
+      const [x0, y0] = peaks[i]; const [x1, y1] = peaks[i + 1];
+      const top = Math.round(y0 + ((y1 - y0) * (x - x0)) / (x1 - x0));
+      ctx.fillStyle = '#3a2420';
+      ctx.fillRect(x, top, 1, h - top);
+      ctx.fillStyle = '#5a3a30';
+      ctx.fillRect(x, top, 1, 2);
+    }
+    for (let i = 0; i < 60; i++) {
+      ctx.fillStyle = r() < 0.5 ? '#2a1814' : '#4a2e26';
+      ctx.fillRect(Math.floor(r() * w), 50 + Math.floor(r() * 70), 3, 2);
+    }
+    // glowing lava seams
+    ctx.fillStyle = '#e8601c';
+    for (let i = 0; i < 6; i++) {
+      let x = Math.floor(r() * w), y = 80 + Math.floor(r() * 30);
+      for (let k = 0; k < 10; k++) { ctx.fillRect(x, y, 2, 1); x += 1; y += r() < 0.5 ? 1 : 0; }
+    }
+  });
+
+  canvasTex(scene, 'mc-ground', 64, 76, (ctx, w, h) => {
+    const r = rng(47);
+    ctx.fillStyle = '#4a3630'; ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = '#6a544a'; ctx.fillRect(0, 12, w, 54);  // ashy path
+    ctx.fillStyle = '#8a7468'; ctx.fillRect(0, 12, w, 2);
+    ctx.fillStyle = '#3a2824'; ctx.fillRect(0, 64, w, 2);
+    for (let i = 0; i < 60; i++) {
+      ctx.fillStyle = r() < 0.5 ? '#5a463e' : '#8a7a72';
+      ctx.fillRect(Math.floor(r() * w), 15 + Math.floor(r() * 48), r() < 0.3 ? 2 : 1, 1);
+    }
+    // ash drifts
+    for (let i = 0; i < 6; i++) { ctx.fillStyle = '#9a8e88'; ctx.fillRect(Math.floor(r() * w), 16 + Math.floor(r() * 44), 4, 1); }
+    // lava cracks in the rock edges
+    ctx.fillStyle = '#d8501c';
+    for (let i = 0; i < 4; i++) ctx.fillRect(Math.floor(r() * w), r() < 0.5 ? 4 + Math.floor(r() * 6) : 68 + Math.floor(r() * 6), 3, 1);
+  });
+
+  canvasTex(scene, 'mc-fg', 160, 24, (ctx, w, h) => {
+    const r = rng(53);
+    for (let i = 0; i < 7; i++) {
+      const x = Math.floor(r() * w), rw = 8 + Math.floor(r() * 10), rh = 6 + Math.floor(r() * 8);
+      ctx.fillStyle = '#2a1a16'; ctx.fillRect(x, h - rh, rw, rh);
+      ctx.fillStyle = '#4a3028'; ctx.fillRect(x + 1, h - rh + 1, rw - 3, 2);
+    }
+  });
+
+  canvasTex(scene, 'ash', 2, 2, (ctx) => { ctx.fillStyle = '#b8b0ac'; ctx.fillRect(0, 0, 2, 2); });
+
+  canvasTex(scene, 'ember', 7, 6, (ctx) => {
+    ctx.fillStyle = '#c02810'; ctx.fillRect(1, 0, 5, 6); ctx.fillRect(0, 1, 7, 4);
+    ctx.fillStyle = '#ff8020'; ctx.fillRect(1, 1, 5, 4);
+    ctx.fillStyle = '#ffe060'; ctx.fillRect(2, 2, 3, 2);
+  });
+
+  canvasTex(scene, 'smog', 56, 24, (ctx) => {
+    const r = rng(9);
+    for (let i = 0; i < 80; i++) {
+      const a = r() * Math.PI * 2, d = Math.sqrt(r());
+      ctx.fillStyle = r() < 0.5 ? '#a070c0' : '#7a5090';
+      ctx.fillRect(Math.round(28 + Math.cos(a) * d * 26), Math.round(12 + Math.sin(a) * d * 11), 2, 2);
+    }
+  });
+
+  const puddle = (key, dark, mid, light) => canvasTex(scene, key, 30, 10, (ctx) => {
+    for (let y = -4; y <= 4; y++) {
+      const half = Math.floor(14 * Math.sqrt(1 - (y * y) / 20));
+      ctx.fillStyle = Math.abs(y) > 2 ? dark : mid;
+      ctx.fillRect(15 - half, 5 + y, half * 2, 1);
+    }
+    ctx.fillStyle = light; ctx.fillRect(10, 3, 5, 1); ctx.fillRect(17, 5, 4, 1);
+  });
+  puddle('lava', '#a02810', '#e8601c', '#ffd060');
+  puddle('sludge', '#4a2060', '#7a4090', '#c090e0');
+
+  canvasTex(scene, 'geyser-mark', 34, 12, (ctx) => {
+    ctx.fillStyle = '#ff4020';
+    for (let a = 0; a < 64; a++) {
+      const t = (a / 64) * Math.PI * 2;
+      ctx.fillRect(Math.round(17 + Math.cos(t) * 16), Math.round(6 + Math.sin(t) * 5), 1, 1);
+    }
+  });
+
+  canvasTex(scene, 'lava-col', 12, 44, (ctx) => {
+    ctx.fillStyle = '#c02810'; ctx.fillRect(1, 0, 10, 44);
+    ctx.fillStyle = '#ff7020'; ctx.fillRect(3, 0, 6, 44);
+    ctx.fillStyle = '#ffd060'; ctx.fillRect(5, 0, 2, 44);
+  });
+
+  canvasTex(scene, 'smoke-big', 64, 40, (ctx) => {
+    const r = rng(13);
+    for (let i = 0; i < 160; i++) {
+      const a = r() * Math.PI * 2, d = Math.sqrt(r());
+      ctx.fillStyle = r() < 0.5 ? 'rgba(60,56,56,0.9)' : 'rgba(90,86,86,0.85)';
+      ctx.fillRect(Math.round(32 + Math.cos(a) * d * 30), Math.round(20 + Math.sin(a) * d * 18), 4, 4);
+    }
+  });
+
   // Sparkle under dropped items
   canvasTex(scene, 'glint', 7, 7, (ctx) => {
     ctx.fillStyle = '#ffffff';

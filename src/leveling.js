@@ -12,6 +12,17 @@ export const SPECIES = {
   shedinja:  { name: 'SHEDINJA',  hp: 1,  atk: 90, spa: 30,  exp: 95 },
   smeargle:  { name: 'SMEARGLE',  hp: 55, atk: 20, spa: 20,  exp: 106 },
   spinda:    { name: 'SPINDA',    hp: 60, atk: 60, spa: 60,  exp: 85 },
+  // Mt. Chimney / Fiery Path
+  numel:     { name: 'NUMEL',     hp: 60, atk: 60, spa: 65,  exp: 88 },
+  camerupt:  { name: 'CAMERUPT',  hp: 70, atk: 100, spa: 105, exp: 175 },
+  zubat:     { name: 'ZUBAT',     hp: 40, atk: 45, spa: 30,  exp: 54 },
+  koffing:   { name: 'KOFFING',   hp: 40, atk: 65, spa: 60,  exp: 114 },
+  grimer:    { name: 'GRIMER',    hp: 80, atk: 80, spa: 40,  exp: 90 },
+  slugma:    { name: 'SLUGMA',    hp: 40, atk: 40, spa: 70,  exp: 78 },
+  machop:    { name: 'MACHOP',    hp: 70, atk: 80, spa: 35,  exp: 88 },
+  torkoal:   { name: 'TORKOAL',   hp: 70, atk: 85, spa: 85,  exp: 161 },
+  kecleon:   { name: 'KECLEON',   hp: 60, atk: 90, spa: 60,  exp: 132 },
+  sableye:   { name: 'SABLEYE',   hp: 50, atk: 75, spa: 65,  exp: 98 },
 };
 
 // Evolution line and the level each form is reached at (mainline levels)

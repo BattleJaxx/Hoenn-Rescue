@@ -8,12 +8,12 @@ const FONT = '"Press Start 2P", monospace';
 // 0 down, 1 up, 2 left, 3-4 walk down, 5-6 walk up, 7-8 walk left
 const F = { down: 0, up: 1, left: 2, walkLeft: [7, 8] };
 
-const TAUNTS = ['Go, POOCHYENA!', 'Team Aqua, attack!', 'Get that kid!', 'You won\'t pass!'];
-const DEFEATS = ['Tch! Retreat!', 'No way!', 'I\'ll remember this!', 'Grr... fall back!'];
 
 export class Grunt {
-  constructor(scene, standX, boss = false) {
+  // cfg: { texture, taunts, defeats } from the stage; boss: { line } or null
+  constructor(scene, standX, boss, cfg) {
     this.scene = scene;
+    this.cfg = cfg;
     this.standX = standX;
     this.boss = boss;
     this.x = scene.camX + 340;            // walks in from the right edge
@@ -21,7 +21,7 @@ export class Grunt {
     this.state = 'enter';
     this.t = 0;
     this.removed = false;
-    this.sprite = scene.add.sprite(this.x, this.y, 'aqua_grunt', F.left)
+    this.sprite = scene.add.sprite(this.x, this.y, cfg.texture, F.left)
       .setOrigin(0.5, 1)
       .setScale(SPRITE_SCALE)
       .setDepth(10 + this.y);
@@ -42,7 +42,8 @@ export class Grunt {
   defeat() {
     this.state = 'defeated';
     this.t = 0;
-    this.say(DEFEATS[Math.floor(Math.random() * DEFEATS.length)], 1100);
+    const D = this.cfg.defeats;
+    this.say(D[Math.floor(Math.random() * D.length)], 1100);
   }
 
   update(dt) {
@@ -58,7 +59,8 @@ export class Grunt {
         if (this.x <= this.standX) {
           this.state = 'stand';
           this.t = 0;
-          this.say(this.boss ? 'Go, my POOCHYENA!' : TAUNTS[Math.floor(Math.random() * TAUNTS.length)], this.boss ? 2400 : 1600);
+          const T = this.cfg.taunts;
+          this.say(this.boss ? this.boss.line : T[Math.floor(Math.random() * T.length)], this.boss ? 2400 : 1600);
         }
         break;
       }
