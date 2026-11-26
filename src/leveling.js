@@ -5,6 +5,12 @@ export const SPECIES = {
   treecko:   { name: 'TREECKO',   hp: 40, atk: 45, spa: 65,  exp: 65,  growth: 'mediumSlow' },
   grovyle:   { name: 'GROVYLE',   hp: 50, atk: 65, spa: 85,  exp: 141, growth: 'mediumSlow' },
   sceptile:  { name: 'SCEPTILE',  hp: 70, atk: 85, spa: 105, exp: 265, growth: 'mediumSlow' },
+  torchic:   { name: 'TORCHIC',   hp: 45, atk: 60, spa: 70,  exp: 65,  growth: 'mediumSlow' },
+  combusken: { name: 'COMBUSKEN', hp: 60, atk: 85, spa: 85,  exp: 142, growth: 'mediumSlow' },
+  blaziken:  { name: 'BLAZIKEN',  hp: 80, atk: 120, spa: 110, exp: 265, growth: 'mediumSlow' },
+  mudkip:    { name: 'MUDKIP',    hp: 50, atk: 70, spa: 50,  exp: 65,  growth: 'mediumSlow' },
+  marshtomp: { name: 'MARSHTOMP', hp: 70, atk: 85, spa: 60,  exp: 143, growth: 'mediumSlow' },
+  swampert:  { name: 'SWAMPERT',  hp: 100, atk: 110, spa: 85, exp: 268, growth: 'mediumSlow' },
   poochyena: { name: 'POOCHYENA', hp: 35, atk: 55, spa: 30,  exp: 56 },
   wurmple:   { name: 'WURMPLE',   hp: 45, atk: 45, spa: 20,  exp: 56 },
   shroomish: { name: 'SHROOMISH', hp: 60, atk: 40, spa: 40,  exp: 65 },
@@ -29,6 +35,10 @@ export const SPECIES = {
 export const EVOLUTIONS = {
   treecko: { into: 'grovyle', level: 16 },
   grovyle: { into: 'sceptile', level: 36 },
+  torchic: { into: 'combusken', level: 16 },
+  combusken: { into: 'blaziken', level: 36 },
+  mudkip: { into: 'marshtomp', level: 16 },
+  marshtomp: { into: 'swampert', level: 36 },
 };
 
 export const START_LEVEL = 5;   // starters begin at Lv5, as in the mainline games

@@ -236,6 +236,35 @@ export function makeTextures(scene) {
     ctx.fillRect(2, 2, 3, 2);
   });
 
+  // ----- Starter specials -----
+  canvasTex(scene, 'waterpulse', 10, 10, (ctx) => {
+    ctx.fillStyle = '#2060c0';
+    for (let a = 0; a < 40; a++) { const t = (a / 40) * Math.PI * 2; ctx.fillRect(Math.round(5 + Math.cos(t) * 4), Math.round(5 + Math.sin(t) * 4), 1, 1); }
+    ctx.fillStyle = '#60b0ff'; ctx.fillRect(3, 2, 4, 6); ctx.fillRect(2, 3, 6, 4);
+    ctx.fillStyle = '#d0f0ff'; ctx.fillRect(3, 3, 2, 2);
+  });
+
+  canvasTex(scene, 'surf', 26, 22, (ctx) => {
+    // a curling wave crest facing right
+    const rows = [[2, 14], [0, 18], [0, 22], [0, 24], [0, 25], [0, 26], [0, 26], [0, 26]];
+    ctx.fillStyle = '#2060c0';
+    for (let y = 0; y < 22; y++) {
+      const w = y < 4 ? 10 + y * 3 : 26 - Math.max(0, (y - 12));
+      ctx.fillRect(0, y, Math.min(26, w), 1);
+    }
+    ctx.fillStyle = '#4890e8';
+    for (let y = 3; y < 22; y++) ctx.fillRect(0, y, Math.min(20, 8 + y), 1);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(10, 0, 8, 2); ctx.fillRect(16, 2, 6, 2); ctx.fillRect(20, 4, 4, 3); ctx.fillRect(4, 8, 3, 1); ctx.fillRect(8, 14, 4, 1);
+    void rows;
+  });
+
+  canvasTex(scene, 'flame', 8, 10, (ctx) => {
+    ctx.fillStyle = '#c02810'; ctx.fillRect(1, 3, 6, 7); ctx.fillRect(2, 1, 4, 2);
+    ctx.fillStyle = '#ff8020'; ctx.fillRect(2, 4, 4, 5); ctx.fillRect(3, 2, 2, 2);
+    ctx.fillStyle = '#ffe060'; ctx.fillRect(3, 6, 2, 3);
+  });
+
   // ----- Mt. Chimney -----
   canvasTex(scene, 'mc-far', 256, 110, (ctx, w, h) => {
     const r = rng(41);

@@ -6,6 +6,7 @@ import { input } from './input.js';
 import { effects } from './items.js';
 import { MOVES } from './config.js';
 import { MOVES_DEF, TYPE_TINT } from './moves.js';
+import { STARTERS, SPECIALS } from './starters.js';
 import {
   SPECIES, EVOLUTIONS, START_LEVEL, MAX_LEVEL, expForLevel, playerStats, enemyScale,
 } from './leveling.js';
@@ -282,13 +283,22 @@ export class Fighter {
 }
 
 // ---------------------------------------------------------------------------
-// Player: Treecko
+// Player: the chosen starter (Treecko, Torchic or Mudkip line)
 // ---------------------------------------------------------------------------
 export class Player extends Fighter {
-  constructor(scene, x, y) {
+  constructor(scene, x, y, starter = 'treecko') {
     super(scene, 'treecko_actions', x, y, PLAYER.hp, 'TREECKO');
+    this.line = STARTERS[starter] ? starter : 'treecko';
+    this.lineCfg = STARTERS[this.line];
     this.form = 'treecko';
     this.useSheet = true;  // hand-drawn action sheet (Treecko only, so far)
+    if (this.line !== 'treecko') {
+      // No action sheet yet: use the follower sprite, as evolved forms do
+      this.form = this.line;
+      this.name = SPECIES[this.line].name;
+      this.useSheet = false;
+      this.sprite.setTexture(this.line);
+    }
     this.level = START_LEVEL;
     this.exp = expForLevel(START_LEVEL);
     this.upgrades = {};    // light: 'furyCutter' | heavy: 'leafBlade' | special: 'leafStorm'
@@ -390,11 +400,15 @@ export class Player extends Fighter {
     return m;
   }
 
+  // The special this starter uses right now (upgraded at its final evolution)
+  get specialId() { return this.upgrades.special || this.lineCfg.special; }
+
   // Damage multiplier for our attacks: level stats, items and move upgrades
   outgoing(atkName) {
     let m = effects.machoStat(this.items);
-    const special = atkName === 'seed' || atkName === 'leafStorm';
-    m *= special ? this.stats.spaMult : this.stats.atkMult;
+    const S = SPECIALS[atkName === 'seed' ? 'bulletSeed' : atkName];
+    const special = !!S;   // anything fired with the SPECIAL button
+    m *= S && S.stat === 'spa' ? this.stats.spaMult : this.stats.atkMult;
     if (special) {
       m *= effects.specialMult(this.items);
       if (this.spaDropT > 0) m *= MOVES.leafStorm.spaDrop;
@@ -512,7 +526,7 @@ export class Player extends Fighter {
     const conf = this.confuseT > 0 ? -1 : 1;
     const dirX = conf * ((I.held.right ? 1 : 0) - (I.held.left ? 1 : 0));
     const dirY = conf * ((I.held.down ? 1 : 0) - (I.held.up ? 1 : 0));
-    const spd = this.speedMult;
+    const spd = this.speedMult * this.lineCfg.speed;
 
     switch (this.state) {
       case 'idle':
@@ -530,6 +544,7 @@ export class Player extends Fighter {
         if (I.pressed.special && this.energy >= PLAYER.specialCost) {
           this.energy -= PLAYER.specialCost;
           this.seedsFired = 0;
+          this.dashAtk = null;
           this.lastAttack = 'special';
           this.setState('special');
           break;
@@ -634,7 +649,51 @@ export class Player extends Fighter {
       }
 
       case 'special': {
-        if (this.upgrades.special === 'leafStorm') {
+        const sp = this.specialId;
+        if (sp === 'waterPulse' || sp === 'surf') {
+          // Water Pulse: three orbs in a fan. Surf: one wave across the whole path.
+          if (!this.seedsFired && this.t >= 120) {
+            if (sp === 'surf') this.scene.fireSurf(this); else this.scene.fireWaterPulse(this);
+            this.seedsFired = 1;
+          }
+          this.offsetX = -this.facing * (this.seedsFired ? 1 : 0);
+          if (this.t > (sp === 'surf' ? 560 : 440)) this.setState('idle');
+          break;
+        }
+        if (sp === 'flameCharge' || sp === 'flareBlitz') {
+          // Dash forward wreathed in flame, knocking down everything in the way
+          const S = SPECIALS[sp];
+          if (this.t < S.windup) {
+            this.offsetX = -this.facing * 2;
+            this.tint = 0xff9040;
+            break;
+          }
+          if (!this.dashAtk) {
+            this.dashAtk = {
+              dmg: S.dmg * this.outgoing(sp), range: 22, depth: 11, knockdown: true, push: 40,
+              tint: 0xff7040, shake: sp === 'flareBlitz',
+              onHit: S.burn ? (scene, p, e, atk) => e.poison(atk.dmg * S.burn, 3000, 'burn') : null,
+            };
+            this.hitSet = new Set();
+            this.scene.cameras.main.shake(90, 0.004);
+          }
+          const tDash = this.t - S.windup;
+          if (tDash < S.dash) {
+            this.x += this.facing * S.dashSpeed * dt;
+            this.moving = true;
+            this.invuln = Math.max(this.invuln || 0, 60);
+            this.tint = Math.floor(this.t / 50) % 2 ? 0xff7040 : 0xffd060;
+            this.showSlash(1.2, 0xff7040);
+            this.scene.meleeHit(this, this.dashAtk, this.hitSet);
+            this.scene.flameTrail(this);
+          } else if (tDash > S.dash + S.recovery) {
+            if (S.speedBoost) this.speedBoostT = S.speedBoost; // Flame Charge raises Speed
+            this.dashAtk = null;
+            this.setState('idle');
+          }
+          break;
+        }
+        if (sp === 'leafStorm') {
           // Leaf Storm: one big volley, then Sp. Atk drops (Clear Amulet shortens the drop)
           if (!this.seedsFired && this.t >= 120) {
             this.scene.fireLeafStorm(this);

@@ -19,9 +19,24 @@ export const TYPE_TINT = {
 const vuln = (amount, ms, maxStacks = 1, key) => (scene, p, e) => e.addVuln(key, amount, ms, maxStacks);
 
 export const MOVES_DEF = {
-  // ----- Evolution choices (Treecko line) -----
+  // ----- Evolution choices at Lv16 (no `lines`, so tutors never offer them) -----
   furyCutter: { slot: 'light', name: 'FURY CUTTER', type: 'Bug', desc: 'Each light hit landed in a row hits harder' },
   leafBlade: { slot: 'heavy', name: 'LEAF BLADE', type: 'Grass', desc: 'Stronger heavy attack, often critical' },
+  // Torchic line (Double Kick is shared with the tutor list below)
+  blazeKick: {
+    slot: 'heavy', name: 'BLAZE KICK', type: 'Fire', desc: 'Stronger heavy kick, often critical, burns',
+    build: (a) => { a.dmg *= 1.3; a.crit = { chance: 0.25, mult: 2 }; },
+    onHit: (scene, p, e, atk) => e.poison(atk.dmg * 0.4, 3000, 'burn'),
+  },
+  // Mudkip line
+  mudSlap: {
+    slot: 'light', name: 'MUD-SLAP', type: 'Ground', desc: 'Light hits slow enemies down',
+    onHit: (scene, p, e) => e.slowFor(1800),
+  },
+  takeDown: {
+    slot: 'heavy', name: 'TAKE DOWN', type: 'Normal', desc: 'Much stronger heavy charge, small recoil',
+    build: (a) => { a.dmg *= 1.7; a.push = (a.push || 30) * 1.5; a.recoil = 1 / 5; },
+  },
 
   // ----- Tutor: light -----
   furySwipes: {
@@ -71,7 +86,7 @@ export const MOVES_DEF = {
     onHit: (scene, p) => p.addPowerStack(),
   },
   flameCharge: {
-    slot: 'light', name: 'FLAME CHARGE', type: 'Fire', lines: { torchic: 'L' },
+    slot: 'light', name: 'FLAME CHARGE', type: 'Fire', lines: {}, // now Torchic's special instead
     desc: 'Light finisher dashes and boosts your speed', build: (a, n) => { if (n === 'light3') { a.dash = 200; a.speedBoost = 2500; } },
   },
   shadowClaw: {

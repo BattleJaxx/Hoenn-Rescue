@@ -11,6 +11,7 @@ import { input } from './input.js';
 import { MOVES, SCENE_WEIGHTS, ACE_ITEMS } from './config.js';
 import { STAGES, LAST_STAGE, run } from './stages.js';
 import { VOLCANO_CLASSES } from './volcano.js';
+import { STARTERS, STARTER_IDS, SPECIALS, lineOf } from './starters.js';
 import { Npc } from './npc.js';
 import { ACE_CLASSES } from './aces.js';
 import { MOVES_DEF, rollTutorOffer } from './moves.js';
@@ -41,7 +42,7 @@ export class BootScene extends Phaser.Scene {
     this.load.image('fg-bush', 'assets/fg_bush.png');
     this.load.image('ground', 'assets/ground.png');
     this.load.spritesheet('poochyena', 'assets/poochyena.png', { frameWidth: 32, frameHeight: 32 });
-    for (const m of ['wurmple', 'shroomish', 'silcoon', 'grovyle', 'sceptile', 'shedinja', 'smeargle', 'spinda',
+    for (const m of ['torchic', 'combusken', 'blaziken', 'mudkip', 'marshtomp', 'swampert', 'wurmple', 'shroomish', 'silcoon', 'grovyle', 'sceptile', 'shedinja', 'smeargle', 'spinda',
       'numel', 'camerupt', 'zubat', 'koffing', 'grimer', 'slugma', 'machop', 'torkoal', 'kecleon', 'sableye']) {
       this.load.spritesheet(m, `assets/${m}.png`, { frameWidth: 32, frameHeight: 32 });
     }
@@ -191,11 +192,68 @@ export class TitleScene extends Phaser.Scene {
       }
       return;
     }
+    if (this.select) { this.updateSelect(); return; }
     if (P.help) { this.openHelp(); return; }
-    if (input.anyPressed || P.start) {
+    if (input.anyPressed || P.start) this.openSelect();
+  }
+
+  // ----- Choose your starter -----------------------------------------------------
+  openSelect() {
+    const D = 900;
+    let idx = 0;
+    try { idx = Math.max(0, STARTER_IDS.indexOf(localStorage.getItem('hr_starter'))); } catch (e) { /* storage off */ }
+    const parts = [this.add.rectangle(0, 0, VIEW_W, VIEW_H, 0x101828, 1).setOrigin(0).setDepth(D)];
+    parts.push(text(this, VIEW_W / 2, 14, 'CHOOSE YOUR STARTER', 8, '#ffd23f').setOrigin(0.5, 0).setDepth(D));
+    const mons = STARTER_IDS.map((id, i) => {
+      const x = VIEW_W / 2 + (i - 1) * 96;
+      const ring = this.add.ellipse(x, 104, 52, 14, 0xffffff, 0.12).setDepth(D);
+      const spr = this.add.sprite(x, 104, id, 4).setOrigin(0.5, 30 / 32).setScale(3).setFlipX(true).setDepth(D + 1);
+      const name = text(this, x, 114, SPECIES[id].name, 8).setOrigin(0.5, 0).setDepth(D + 1);
+      parts.push(ring, spr, name);
+      return { ring, spr, name, x };
+    });
+    const blurb = text(this, VIEW_W / 2, 136, '', 8, '#9fd8ff').setOrigin(0.5, 0).setDepth(D + 1);
+    const hint = text(this, VIEW_W / 2, 160, this.isTouch ? 'STICK: CHOOSE   L: GO!' : '< >: CHOOSE   ENTER: GO!', 8, '#cfcfcf')
+      .setOrigin(0.5, 0).setDepth(D + 1);
+    parts.push(blurb, hint);
+    this.select = { idx, mons, blurb, parts, t: 0 };
+    this.showSelect();
+  }
+
+  showSelect() {
+    const S = this.select;
+    S.mons.forEach((m, i) => {
+      const on = i === S.idx;
+      m.ring.setFillStyle(on ? 0xffd23f : 0xffffff, on ? 0.35 : 0.1);
+      m.spr.setAlpha(on ? 1 : 0.55);
+      m.name.setColor(on ? '#ffd23f' : '#9a9a9a');
+    });
+    S.blurb.setText(STARTERS[STARTER_IDS[S.idx]].blurb);
+  }
+
+  updateSelect() {
+    const S = this.select;
+    const P = input.pressed;
+    S.t += this.game.loop.delta;
+    // Selected starter hops on the spot
+    S.mons.forEach((m, i) => {
+      const hop = i === S.idx ? Math.abs(Math.sin(S.t / 160)) * 4 : 0;
+      m.spr.setY(104 - hop).setFrame(i === S.idx && Math.floor(S.t / 140) % 2 ? 5 : 4);
+    });
+    if (P.help) { for (const o of S.parts) o.destroy(); this.select = null; return; }
+    if (P.left || P.right) {
+      S.idx = (S.idx + (P.right ? 1 : STARTER_IDS.length - 1)) % STARTER_IDS.length;
+      this.showSelect();
+      return;
+    }
+    // On touch, a tap on the left half is the stick, so only L confirms there
+    if (P.light || P.jump || (P.start && !this.isTouch)) {
+      const id = STARTER_IDS[S.idx];
+      try { localStorage.setItem('hr_starter', id); } catch (e) { /* storage off */ }
       run.carry = null;
+      run.starter = id;
       const s = parseInt(new URLSearchParams(window.location.search).get('stage'), 10);
-      this.scene.start('game', { stage: STAGES[s] ? s : 1 });
+      this.scene.start('game', { stage: STAGES[s] ? s : 1, starter: id });
     }
   }
 }
@@ -207,6 +265,9 @@ export class GameScene extends Phaser.Scene {
 
   init(data) {
     this.stageNum = (data && STAGES[data.stage]) ? data.stage : 1;
+    const qs = new URLSearchParams(window.location.search).get('starter');
+    this.starter = (data && STARTERS[data.starter] && data.starter) || run.starter || (STARTERS[qs] ? qs : 'treecko');
+    run.starter = this.starter;
     this.stage = STAGES[this.stageNum];
   }
 
@@ -243,6 +304,7 @@ export class GameScene extends Phaser.Scene {
     this.params = new URLSearchParams(window.location.search);
     this.slots = this.stage.slots.map((x) => ({ x, spawned: false }));
     this.hazards = [];    // geysers and heat-wave rings
+    this.surfWaves = [];  // Surf
     this.smoke = [];
 
     this.cameras.main.setBounds(0, 0, WORLD_W, VIEW_H);
@@ -250,7 +312,7 @@ export class GameScene extends Phaser.Scene {
 
     this.buildBackground();
 
-    this.player = new Player(this, 40, 140);
+    this.player = new Player(this, 40, 140, this.starter);
     this.player.facing = 1;
 
     this.buildHud();
@@ -553,9 +615,68 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.shake(160, 0.006);
   }
 
+  // Water Pulse: three water orbs in a fan. Each knocks down the first enemy it hits.
+  fireWaterPulse(p) {
+    const W = SPECIALS.waterPulse;
+    const atk = { dmg: W.dmg * p.outgoing('waterPulse'), knockdown: true, push: 26, stun: 300 };
+    for (let i = 0; i < W.orbs; i++) {
+      const k = i - (W.orbs - 1) / 2;   // -1, 0, 1
+      const img = this.add.image(p.x, p.y, 'waterpulse').setDepth(9400);
+      this.seeds.push({
+        img, x: p.x + p.facing * 12, y: p.y, z: p.z + 12, dir: p.facing, life: W.life, speed: W.speed,
+        vy: k * W.spread * 2, atk, spark: 0x9fd8ff,
+      });
+    }
+    this.cameras.main.shake(80, 0.003);
+  }
+
+  // Surf: a wave the full depth of the path rolls across the screen, hitting everyone once
+  fireSurf(p) {
+    const S = SPECIALS.surf;
+    const imgs = [];
+    for (let y = GROUND_TOP - 4; y <= GROUND_BOTTOM + 6; y += 12) {
+      imgs.push({ img: this.add.image(p.x, y, 'surf').setOrigin(0.5, 1).setFlipX(p.facing < 0).setScale(1.3), y });
+    }
+    this.surfWaves.push({
+      imgs, x: p.x - p.facing * 10, dir: p.facing, hitSet: new Set(),
+      atk: { dmg: S.dmg * p.outgoing('surf'), knockdown: true, launchHigh: true, push: 50 },
+      speed: S.speed,
+    });
+    this.cameras.main.shake(300, 0.006);
+  }
+
+  updateSurf(dt) {
+    for (const w of this.surfWaves) {
+      w.x += w.dir * w.speed * dt;
+      for (const e of this.enemies) {
+        if (w.hitSet.has(e) || !e.alive || e.removed || Math.abs(e.x - w.x) > 14) continue;
+        const r = e.takeHit({ x: w.x - w.dir * 20, y: e.y }, w.atk);
+        if (r) {
+          w.hitSet.add(e);
+          this.noteTarget(e);
+          this.spark(e.x, e.y - e.z - 14, 0x9fd8ff);
+          this.hitstop = Math.max(this.hitstop, 40);
+        }
+      }
+      const bob = Math.sin(this.time.now / 80) * 1.5;
+      for (const it of w.imgs) it.img.setPosition(Math.round(w.x), Math.round(it.y + bob)).setDepth(11 + it.y);
+      if (w.x < this.camX - 40 || w.x > this.camX + VIEW_W + 40) { w.done = true; for (const it of w.imgs) it.img.destroy(); }
+    }
+    this.surfWaves = this.surfWaves.filter((w) => !w.done);
+  }
+
+  // Flame Charge / Flare Blitz: embers left behind the dash
+  flameTrail(p) {
+    if (Math.random() < 0.5) return;
+    const img = this.add.image(p.x - p.facing * 8 + (Math.random() - 0.5) * 6, p.y - 4 - Math.random() * 16, 'flame')
+      .setDepth(10 + p.y - 1);
+    this.tweens.add({ targets: img, y: img.y - 10, alpha: 0, duration: 320, onComplete: () => img.destroy() });
+  }
+
   updateSeeds(dt) {
     for (const s of this.seeds) {
       s.x += s.dir * (s.speed || 240) * dt;
+      if (s.vy) s.y = clamp(s.y + s.vy * dt, GROUND_TOP, GROUND_BOTTOM);
       s.life -= dt;
       for (const e of this.enemies) {
         if (!e.alive || e.removed || s.life <= 0) continue;
@@ -563,7 +684,7 @@ export class GameScene extends Phaser.Scene {
           const r = e.takeHit({ x: s.x - s.dir * 20, y: s.y }, s.atk);
           if (r) {
             this.noteTarget(e);
-            this.spark(s.x, s.y - s.z, 0xc8ff90);
+            this.spark(s.x, s.y - s.z, s.spark || 0xc8ff90);
             this.hitstop = Math.max(this.hitstop, 30);
             s.life = 0;
           }
@@ -909,8 +1030,9 @@ export class GameScene extends Phaser.Scene {
     const p = this.player;
     p.level = Math.min(99, want - 1);
     p.exp = expForLevel(want) - 1;
-    if (p.level >= 16) { p.evolve('grovyle'); this.evoQueue.push('chooseOnly'); }
-    if (p.level >= 36) { p.evolve('sceptile'); p.upgrades.special = 'leafStorm'; }
+    const L = p.lineCfg;
+    if (p.level >= 16) { p.evolve(L.forms[1]); this.evoQueue.push('chooseOnly'); }
+    if (p.level >= 36) { p.evolve(L.forms[2]); p.upgrades.special = L.special2; }
     p.recalcStats(true);
   }
 
@@ -940,10 +1062,13 @@ export class GameScene extends Phaser.Scene {
     const l = ev.isTouch ? 'L' : 'J';
     const h = ev.isTouch ? 'H' : 'K';
     ev.stage = 'choice';
+    const C = this.player.lineCfg.choice;
+    const lm = MOVES_DEF[C.light];
+    const hm = MOVES_DEF[C.heavy];
     this.evoText.setText(
       `${this.player.name} can upgrade a move:\n`
-      + `${l}: FURY CUTTER (Light) - each light hit in a row hits harder\n`
-      + `${h}: LEAF BLADE (Heavy) - stronger, often critical`,
+      + `${l}: ${lm.name} (Light) - ${lm.desc.toLowerCase()}\n`
+      + `${h}: ${hm.name} (Heavy) - ${hm.desc.toLowerCase()}`,
     );
   }
 
@@ -971,11 +1096,12 @@ export class GameScene extends Phaser.Scene {
       }
       case 'evolved':
         if (ev.t > 1600) {
-          if (ev.into === 'grovyle' && !p.upgrades.light && !p.upgrades.heavy) {
+          const L = p.lineCfg;
+          if (ev.into === L.forms[1] && !p.upgrades.light && !p.upgrades.heavy) {
             this.showUpgradeChoice();
-          } else if (ev.into === 'sceptile') {
-            p.upgrades.special = 'leafStorm';
-            this.evoText.setText(`${p.name}'s BULLET SEED became LEAF STORM!\nA wide volley of leaves, then Sp. Atk drops for a while.`);
+          } else if (ev.into === L.forms[2]) {
+            p.upgrades.special = L.special2;
+            this.evoText.setText(`${p.name}'s ${L.upgradeText}`);
             ev.stage = 'done';
             ev.t = 0;
           } else {
@@ -986,9 +1112,10 @@ export class GameScene extends Phaser.Scene {
         break;
       case 'choice':
         if (input.pressed.light || input.pressed.heavy) {
-          const fury = input.pressed.light;
-          if (fury) p.upgrades.light = 'furyCutter'; else p.upgrades.heavy = 'leafBlade';
-          this.evoText.setText(`${p.name} learned ${fury ? 'FURY CUTTER' : 'LEAF BLADE'}!`);
+          const slot = input.pressed.light ? 'light' : 'heavy';
+          const id = p.lineCfg.choice[slot];
+          p.upgrades[slot] = id;
+          this.evoText.setText(`${p.name} learned ${MOVES_DEF[id].name}!`);
           ev.stage = 'done';
           ev.t = 0;
         }
@@ -1243,7 +1370,7 @@ export class GameScene extends Phaser.Scene {
   snapshotRun() {
     const p = this.player;
     run.carry = {
-      form: p.form, level: p.level, exp: p.exp, upgrades: { ...p.upgrades }, items: { ...p.items },
+      starter: p.line, form: p.form, level: p.level, exp: p.exp, upgrades: { ...p.upgrades }, items: { ...p.items },
       hpFrac: p.hp / p.maxHp, energy: p.energy,
     };
   }
@@ -1345,6 +1472,7 @@ export class GameScene extends Phaser.Scene {
       this.updateEnemyShots(dt);
       this.updateClouds(dt);
       this.updateHazards(dt);
+      this.updateSurf(dt);
       this.updateSpecials(dt);
       if (this.phase === 'play') this.updateNpcs(dt);
       this.updateDirector(dt);
