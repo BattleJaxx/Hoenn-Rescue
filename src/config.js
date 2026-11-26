@@ -97,3 +97,18 @@ export const MOVES = {
   // Sceptile: Special becomes Leaf Storm. A wide volley of leaves, then Sp. Atk drops for a while.
   leafStorm: { leaves: 12, dmg: 6, spread: 20, speed: 230, life: 0.9, spaDrop: 0.6, dropTime: 8000 },
 };
+
+// ----- Random scenes between grunt fights -----------------------------------
+// One scene rolls at each slot (x position between two grunt waves)
+export const SCENE_SLOTS = [365, 760];
+export const SCENE_WEIGHTS = { ace: 40, trader: 30, tutor: 30 };
+
+// Ace Trainers for each stage: picked at random. Their Pokémon is a mini-boss with a gimmick.
+export const ACES = {
+  1: [
+    { pokemon: 'shedinja', level: 12, line: 'My SHEDINJA can only be hurt from behind!' },
+    { pokemon: 'smeargle', level: 11, line: 'SMEARGLE copies everything you do!' },
+    { pokemon: 'spinda', level: 11, line: 'Can you keep up with SPINDA\'s dance?' },
+  ],
+};
+export const ACE_ITEMS = 3;   // item choice after beating an Ace

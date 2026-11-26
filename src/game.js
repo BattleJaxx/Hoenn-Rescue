@@ -8,7 +8,10 @@ import { WILD_CLASSES, randomLaneY } from './wild.js';
 import { Grunt, Pickup } from './grunt.js';
 import { ITEMS, ITEM_IDS, itemDesc, rollItems, effects } from './items.js';
 import { input } from './input.js';
-import { MOVES } from './config.js';
+import { MOVES, SCENE_SLOTS, SCENE_WEIGHTS, ACES, ACE_ITEMS } from './config.js';
+import { Npc } from './npc.js';
+import { ACE_CLASSES } from './aces.js';
+import { MOVES_DEF, rollTutorOffer } from './moves.js';
 import { SPECIES, START_LEVEL, expForLevel, expYield } from './leveling.js';
 
 const FONT = '"Press Start 2P", monospace';
@@ -35,10 +38,12 @@ export class BootScene extends Phaser.Scene {
     this.load.image('fg-bush', 'assets/fg_bush.png');
     this.load.image('ground', 'assets/ground.png');
     this.load.spritesheet('poochyena', 'assets/poochyena.png', { frameWidth: 32, frameHeight: 32 });
-    for (const m of ['wurmple', 'shroomish', 'silcoon', 'grovyle', 'sceptile']) {
+    for (const m of ['wurmple', 'shroomish', 'silcoon', 'grovyle', 'sceptile', 'shedinja', 'smeargle', 'spinda']) {
       this.load.spritesheet(m, `assets/${m}.png`, { frameWidth: 32, frameHeight: 32 });
     }
-    this.load.spritesheet('aqua_grunt', 'assets/aqua_grunt.png', { frameWidth: 16, frameHeight: 32 });
+    for (const k of ['aqua_grunt', 'ace_trainer_m', 'ace_trainer_f', 'trader', 'tutor']) {
+      this.load.spritesheet(k, `assets/${k}.png`, { frameWidth: 16, frameHeight: 32 });
+    }
     for (const id of ITEM_IDS) this.load.image(`item_${id}`, `assets/items/${id}.png`);
   }
 
@@ -107,6 +112,13 @@ export class GameScene extends Phaser.Scene {
     this.pendingWild = null;
     this.evolution = null;
     this.evoQueue = [];
+    this.npcs = [];
+    this.hoverNpc = null;
+    this.menu = null;
+    this.aceNpc = null;
+    this.specials = [];   // Seed Bomb and Rock Slide in flight
+    this.params = new URLSearchParams(window.location.search);
+    this.slots = SCENE_SLOTS.map((x) => ({ x, spawned: false }));
 
     this.cameras.main.setBounds(0, 0, WORLD_W, VIEW_H);
     this.cameras.main.setRoundPixels(true);
@@ -154,6 +166,7 @@ export class GameScene extends Phaser.Scene {
     this.goArrow = this.add.image(VIEW_W - 22, 70, 'go-arrow').setScrollFactor(0).setDepth(D).setVisible(false);
     this.goText = text(this, VIEW_W - 34, 66, 'GO', 8, '#ffd23f').setOrigin(1, 0).setScrollFactor(0).setDepth(D).setVisible(false);
     this.itemRow = [];
+    this.movesText = text(this, 32, 44, '', 8, '#c8ffb0').setScrollFactor(0).setDepth(D + 1);
 
     // Item choice panel (shown while standing on a dropped item)
     this.panel = this.add.container(0, 0).setScrollFactor(0).setDepth(D + 2).setVisible(false);
@@ -182,6 +195,21 @@ export class GameScene extends Phaser.Scene {
       .setScale(3).setScrollFactor(0).setDepth(16000).setVisible(false);
     this.evoOverlay = this.add.rectangle(0, 0, VIEW_W, VIEW_H, 0x000000, 1).setOrigin(0)
       .setScrollFactor(0).setDepth(15000).setAlpha(0);
+
+    // Menu box for talking to Traders and Move Tutors
+    this.menuPanel = this.add.container(0, 0).setScrollFactor(0).setDepth(D + 4).setVisible(false);
+    const mbg = this.add.graphics();
+    mbg.fillStyle(0x101830, 0.95).fillRect(6, 56, VIEW_W - 12, 120);
+    mbg.lineStyle(1, 0xffffff, 0.9).strokeRect(6.5, 56.5, VIEW_W - 13, 119);
+    mbg.lineStyle(1, 0xffffff, 0.3).lineBetween(12, 148.5, VIEW_W - 12, 148.5);
+    const wrap = { fontFamily: FONT, fontSize: '8px', color: '#ffffff', wordWrap: { width: VIEW_W - 28 }, lineSpacing: 3 };
+    this.menuTitle = this.add.text(14, 61, '', wrap);
+    this.menuDesc = this.add.text(14, 152, '', { ...wrap, color: '#c8d8ff' });
+    this.menuLines = [0, 1, 2, 3].map((i) => this.add.text(24, 104 + i * 11, '', { fontFamily: FONT, fontSize: '8px', color: '#ffffff' }));
+    this.menuCursor = this.add.text(14, 104, '>', { fontFamily: FONT, fontSize: '8px', color: '#ffd23f' });
+    const isTouchM = document.body.classList.contains('touch');
+    this.menuHint = text(this, VIEW_W - 8, 46, isTouchM ? 'L: OK   H: BACK' : 'J: OK   K: BACK', 8, '#9cff6a').setOrigin(1, 0);
+    this.menuPanel.add([mbg, this.menuTitle, this.menuDesc, ...this.menuLines, this.menuCursor, this.menuHint]);
   }
 
   refreshItemRow() {
@@ -218,6 +246,11 @@ export class GameScene extends Phaser.Scene {
     const ready = p.energy >= PLAYER.specialCost;
     this.spText.setVisible(ready && Math.floor(this.time.now / 300) % 2 === 0);
     this.levelText.setText(`Lv${p.level}`);
+    const mv = [];
+    if (p.upgrades.light) mv.push(`L:${MOVES_DEF[p.upgrades.light].name}`);
+    if (p.upgrades.heavy) mv.push(`H:${MOVES_DEF[p.upgrades.heavy].name}`);
+    this.movesText.setText(mv.join(' '));
+    this.movesText.setY(this.itemRow.length ? 46 : 32);
     if (this.nameText.text !== p.name) {
       this.nameText.setText(p.name);
       this.portrait.setTexture(p.form, 0);
@@ -263,17 +296,30 @@ export class GameScene extends Phaser.Scene {
     this.lastTargetT = 2500;
   }
 
+  overlapsMove(a, t, atk) {
+    if (atk.area) {
+      return Math.abs(t.x - a.x) < atk.range + 6 && Math.abs(t.y - a.y) <= atk.depth && Math.abs(t.z - a.z) < 26;
+    }
+    if (this.overlaps(a, t, atk)) return true;
+    if (atk.bothSides) {
+      const dx = (a.x - t.x) * a.facing; // behind
+      return dx > -6 && dx < atk.range + 6 && Math.abs(t.y - a.y) <= atk.depth && Math.abs(t.z - a.z) < 26;
+    }
+    return false;
+  }
+
   meleeHit(attacker, atk, hitSet) {
     let landed = 0;
     for (const e of this.enemies) {
       if (hitSet.has(e) || !e.alive || e.removed) continue;
-      if (!this.overlaps(attacker, e, atk)) continue;
+      if (!this.overlapsMove(attacker, e, atk)) continue;
       const r = e.takeHit(attacker, atk);
       if (!r) continue;
       hitSet.add(e);
       this.noteTarget(e);
       if (r === 'hit') {
         landed++;
+        if (atk.onHit) atk.onHit(this, this.player, e, atk);
         this.player.gainEnergy(PLAYER.energyPerHit);
         this.hitstop = atk.knockdown ? 85 : 55;
         this.spark((attacker.x + e.x) / 2, e.y - e.z - 14, atk.crit ? 0xffd23f : 0xffffff);
@@ -308,7 +354,7 @@ export class GameScene extends Phaser.Scene {
 
   onEnemyKO(e) {
     const p = this.player;
-    const gained = Math.floor(expYield(e.species, e.level, e.fromGrunt) * effects.xpMult(p.items));
+    const gained = Math.floor(expYield(e.species, e.level, e.fromAce ? 'ace' : e.fromGrunt) * effects.xpMult(p.items));
     this.floatText(e.x, e.y - 36, `+${gained} EXP`, '#9fd8ff');
     p.heal(effects.koHeal(p.items));
     p.gainExp(gained);
@@ -459,11 +505,13 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  dropItems(x) {
-    const ids = rollItems(2);
-    const cx = clamp(x, this.camX + 60, this.camX + 260);
+  dropItems(x, count = 2, onPicked = null) {
+    const ids = rollItems(count);
+    const gap = count > 2 ? 34 : 30;
+    const cx = clamp(x, this.camX + 40 + gap, this.camX + 280 - gap);
     const y = GROUND_TOP + 22;
-    this.pickups = ids.map((id, i) => new Pickup(this, id, x, GROUND_TOP - 30, cx + (i ? 30 : -30), y));
+    this.onPicked = onPicked || (() => this.gruntItemPicked());
+    this.pickups = ids.map((id, i) => new Pickup(this, id, x, GROUND_TOP - 30, cx + (i - (count - 1) / 2) * gap * 2, y));
   }
 
   takePickup(pk) {
@@ -474,6 +522,10 @@ export class GameScene extends Phaser.Scene {
     this.pickups = [];
     this.hoverPickup = null;
     this.refreshItemRow();
+    this.onPicked();
+  }
+
+  gruntItemPicked() {
     this.waveState = 'none';
     this.locked = false;
     this.waveIdx++;
@@ -490,6 +542,25 @@ export class GameScene extends Phaser.Scene {
       this.camX = Math.max(this.camX, target); // arcade-style: no scrolling back
       const next = WAVES[this.waveIdx];
       if (next && p.x >= next.at) this.startWave(next.count, next.level);
+      // Random scenes appear as they come into view
+      for (const slot of this.slots) {
+        if (!slot.spawned && this.camX + VIEW_W + 30 >= slot.x) { slot.spawned = true; this.spawnScene(slot.x); }
+      }
+    } else if (this.waveState === 'ace') {
+      const left = this.enemies.filter((e) => e.fromAce && e.alive && !e.removed).length;
+      if (left === 0) {
+        const npc = this.aceNpc;
+        this.waveState = 'choosing';
+        npc.say('Amazing! Take these!', 1600);
+        this.time.delayedCall(700, () => {
+          this.dropItems(npc.x, ACE_ITEMS, () => {
+            this.waveState = 'none';
+            this.locked = false;
+            this.goT = 3000;
+          });
+          npc.leave(400);
+        });
+      }
     } else if (this.waveState === 'fighting') {
       const left = this.enemies.filter((e) => e.fromGrunt && e.alive && !e.removed).length;
       if (left === 0 && this.grunt && this.grunt.state === 'stand') {
@@ -511,7 +582,7 @@ export class GameScene extends Phaser.Scene {
 
   // ----- Wild encounters --------------------------------------------------------
   updateWild(dt) {
-    if (this.phase !== 'play' || this.waveState === 'choosing') return;
+    if (this.phase !== 'play' || this.waveState === 'choosing' || this.waveState === 'ace') return;
     // Time passes twice as fast between waves, so walking stretches get encounters too
     this.wildT -= dt * 1000 * (this.waveState === 'none' ? 2 : 1);
     if (this.wildT > 0 || this.pendingWild) return;
@@ -570,6 +641,14 @@ export class GameScene extends Phaser.Scene {
   // ----- Evolution -----------------------------------------------------------
   // Testing aid: ?level=16 starts one EXP short of Lv16, so the first knockout evolves.
   applyTestLevel() {
+    // Testing aids: ?items=lucky_egg,metal_coat  ?light=furySwipes  ?heavy=seedBomb
+    const p0 = this.player;
+    for (const id of (this.params.get('items') || '').split(',')) if (ITEMS[id]) p0.addItem(id);
+    for (const slot of ['light', 'heavy']) {
+      const id = this.params.get(slot);
+      if (MOVES_DEF[id] && MOVES_DEF[id].slot === slot) p0.upgrades[slot] = id;
+    }
+    if (this.params.get('items')) this.refreshItemRow();
     const want = parseInt(new URLSearchParams(window.location.search).get('level'), 10);
     if (!want || want <= START_LEVEL + 1) return;
     const p = this.player;
@@ -673,6 +752,238 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  // ----- Random scenes: Ace Trainer, Trader, Move Tutor -------------------------
+  spawnScene(x) {
+    const p = this.player;
+    const forced = this.params.get('scene');
+    const weights = { ...SCENE_WEIGHTS };
+    if (!Object.keys(p.items).length) delete weights.trader; // nothing to trade yet
+    let kind = forced && weights[forced] !== undefined ? forced : null;
+    if (!kind) {
+      const total = Object.values(weights).reduce((a, b) => a + b, 0);
+      let roll = Math.random() * total;
+      kind = Object.keys(weights).find((k) => (roll -= weights[k]) < 0);
+    }
+    if (kind === 'ace') {
+      const pool = ACES[1];
+      const forcedAce = pool.find((a) => a.pokemon === this.params.get('ace'));
+      const ace = forcedAce || pool[Math.floor(Math.random() * pool.length)];
+      const tex = Math.random() < 0.5 ? 'ace_trainer_m' : 'ace_trainer_f';
+      this.npcs.push(new Npc(this, 'ace', x, tex, ace));
+    } else if (kind === 'trader') {
+      this.npcs.push(new Npc(this, 'trader', x, 'trader', { offer: ITEM_IDS[Math.floor(Math.random() * ITEM_IDS.length)] }));
+    } else {
+      this.npcs.push(new Npc(this, 'tutor', x, 'tutor'));
+    }
+  }
+
+  updateNpcs(dt) {
+    const p = this.player;
+    this.hoverNpc = null;
+    if (this.waveState === 'none' && !this.menu) {
+      for (const n of this.npcs) {
+        if (n.available && Math.abs(p.x - n.x) < 22 && p.y < GROUND_TOP + 18 && p.z < 6) this.hoverNpc = n;
+      }
+    }
+    const isTouch = document.body.classList.contains('touch');
+    const label = { ace: 'BATTLE', trader: 'TRADE', tutor: 'TALK' };
+    for (const n of this.npcs) n.update(dt, n === this.hoverNpc, `${isTouch ? 'L' : 'J'}: ${label[n.kind]}`);
+    this.npcs = this.npcs.filter((n) => !n.removed);
+  }
+
+  talkTo(npc) {
+    if (npc.kind === 'ace') this.startAceBattle(npc);
+    else if (npc.kind === 'trader') this.openTrade(npc);
+    else this.openTutor(npc);
+  }
+
+  startAceBattle(npc) {
+    const ace = npc.data;
+    npc.available = false;
+    npc.say(ace.line, 2200);
+    this.aceNpc = npc;
+    this.waveState = 'ace';
+    this.locked = true;
+    this.goT = 0;
+    const Cls = ACE_CLASSES[ace.pokemon];
+    const e = new Cls(this, this.camX + VIEW_W + 24, randomLaneY(), { level: ace.level });
+    e.fromAce = true;
+    if (ace.pokemon !== 'shedinja') { e.maxHp *= 2.5; e.hp = e.maxHp; } // mini-boss
+    this.enemies.push(e);
+    this.noteTarget(e);
+    this.lastTargetT = 999999;
+  }
+
+  openTrade(npc) {
+    const p = this.player;
+    const offer = npc.data.offer;
+    const owned = ITEM_IDS.filter((id) => p.items[id]);
+    this.openMenu({
+      title: `TRADER: I'll trade my ${ITEMS[offer].name} for one of your items. (${itemDesc(offer, (p.items[offer] || 0) + 1)})`,
+      options: [
+        ...owned.map((id) => ({
+          label: `${ITEMS[id].name}${p.items[id] > 1 ? ` x${p.items[id]}` : ''}`,
+          desc: `Give 1: ${itemDesc(id, p.items[id])}`,
+          act: () => {
+            p.items[id] -= 1;
+            if (!p.items[id]) delete p.items[id];
+            p.addItem(offer);
+            this.refreshItemRow();
+            this.floatText(p.x, p.y - 44, `GOT ${ITEMS[offer].name}!`, '#ffd23f');
+            npc.say('Pleasure doing business!');
+            npc.leave(1200);
+            this.closeMenu();
+          },
+        })),
+        { label: 'NO THANKS', desc: 'Keep your items.', act: () => this.closeMenu() },
+      ],
+    });
+  }
+
+  openTutor(npc) {
+    const p = this.player;
+    const offer = npc.data.offer || (npc.data.offer = rollTutorOffer(p));
+    if (!offer) {
+      npc.say('I have nothing to teach you!');
+      npc.leave(1500);
+      return;
+    }
+    const mv = MOVES_DEF[offer.move];
+    const slotName = offer.slot === 'light' ? 'LIGHT' : 'HEAVY';
+    const current = p.upgrades[offer.slot];
+    const teach = () => {
+      p.upgrades[offer.slot] = offer.move;
+      this.floatText(p.x, p.y - 44, `${p.name} learned ${mv.name}!`, '#ffd23f');
+      npc.say('Use it well!');
+      npc.leave(1200);
+      this.closeMenu();
+    };
+    this.openMenu({
+      title: `MOVE TUTOR: I can teach your ${p.name} ${mv.name} for its ${slotName} attack!`,
+      options: [
+        {
+          label: 'TEACH IT',
+          desc: `${mv.name} (${mv.type}): ${mv.desc}`,
+          act: () => {
+            if (!current) { teach(); return; }
+            // Overwriting a learned move needs confirming
+            this.openMenu({
+              title: `This will replace ${MOVES_DEF[current].name} with ${mv.name}. Are you sure?`,
+              options: [
+                { label: 'YES, REPLACE IT', desc: `${mv.name}: ${mv.desc}`, act: teach },
+                { label: 'NO, KEEP IT', desc: `${MOVES_DEF[current].name}: ${MOVES_DEF[current].desc}`, act: () => this.closeMenu() },
+              ],
+            });
+          },
+        },
+        { label: 'NO THANKS', desc: current ? `Keep ${MOVES_DEF[current].name}.` : 'Keep your moves as they are.', act: () => this.closeMenu() },
+      ],
+    });
+  }
+
+  openMenu(menu) {
+    this.menu = { ...menu, idx: 0, scroll: 0, openedAt: this.time.now };
+    this.menuPanel.setVisible(true);
+    this.panel.setVisible(false);
+    this.drawMenu();
+  }
+
+  closeMenu() {
+    this.menu = null;
+    this.menuPanel.setVisible(false);
+  }
+
+  drawMenu() {
+    const m = this.menu;
+    this.menuTitle.setText(m.title);
+    if (m.idx < m.scroll) m.scroll = m.idx;
+    if (m.idx > m.scroll + 3) m.scroll = m.idx - 3;
+    this.menuLines.forEach((t, i) => {
+      const o = m.options[m.scroll + i];
+      t.setText(o ? o.label : '').setColor(m.scroll + i === m.idx ? '#ffd23f' : '#ffffff');
+    });
+    this.menuCursor.setY(104 + (m.idx - m.scroll) * 11);
+    this.menuDesc.setText(m.options[m.idx].desc || '');
+  }
+
+  updateMenu() {
+    const m = this.menu;
+    if (this.time.now - m.openedAt < 200) return; // don't act on the press that opened it
+    if (input.pressed.up) { m.idx = (m.idx + m.options.length - 1) % m.options.length; this.drawMenu(); }
+    if (input.pressed.down) { m.idx = (m.idx + 1) % m.options.length; this.drawMenu(); }
+    if (input.pressed.light) m.options[m.idx].act();
+    else if (input.pressed.heavy) this.closeMenu();
+  }
+
+  // ----- Move effects that throw things: Seed Bomb, Rock Slide, Thunder Punch's spark -----
+  spawnMove(kind, p, atk) {
+    if (kind === 'seedBomb') {
+      const img = this.add.image(p.x, p.y, 'seed').setScale(2).setDepth(9400);
+      this.specials.push({ kind, img, x: p.x + p.facing * 10, y: p.y, z: 14, vx: p.facing * 70, vz: 150, atk, done: false });
+    } else if (kind === 'rockSlide') {
+      for (let i = 0; i < 5; i++) {
+        const x = p.x + p.facing * (24 + i * 14);
+        const y = clamp(p.y + (i % 2 ? 6 : -6), GROUND_TOP, GROUND_BOTTOM);
+        const img = this.add.image(x, y - 90, 'rock').setDepth(10 + y);
+        this.specials.push({ kind, img, x, y, z: 90 + i * 18, vz: 0, atk, done: false, hitSet: new Set() });
+      }
+    }
+  }
+
+  explode(x, y, atk, radius, depth, hitSet) {
+    for (const e of this.enemies) {
+      if (!e.alive || e.removed || (hitSet && hitSet.has(e))) continue;
+      if (Math.abs(e.x - x) < radius && Math.abs(e.y - y) < depth) {
+        const r = e.takeHit({ x: x - sign(e.x - x || 1) * 10, y }, atk);
+        if (r) { hitSet?.add(e); this.noteTarget(e); }
+        if (r === 'hit') this.player.gainEnergy(PLAYER.energyPerHit);
+      }
+    }
+  }
+
+  updateSpecials(dt) {
+    for (const s of this.specials) {
+      if (s.kind === 'seedBomb') {
+        s.vz -= 520 * dt;
+        s.x += s.vx * dt;
+        s.z += s.vz * dt;
+        if (s.z <= 0) {
+          s.done = true;
+          this.explode(s.x, s.y, { ...s.atk, knockdown: true }, 28, 13);
+          this.spark(s.x, s.y - 8, 0x9cff6a);
+          this.spark(s.x + 8, s.y - 4, 0x9cff6a);
+          this.cameras.main.shake(80, 0.006);
+        }
+      } else if (s.kind === 'rockSlide') {
+        s.vz -= 900 * dt;
+        s.z = Math.max(0, s.z + s.vz * dt);
+        if (s.z <= 0) {
+          s.done = true;
+          this.explode(s.x, s.y, { ...s.atk, knockdown: false, stun: 500, push: 10, dmg: s.atk.dmg * 0.5 }, 12, 10, s.hitSet);
+          this.spark(s.x, s.y - 4, 0xc8a878);
+        }
+      }
+      s.img.setPosition(Math.round(s.x), Math.round(s.y - s.z)).setDepth(10 + s.y);
+      if (s.done) s.img.destroy();
+    }
+    this.specials = this.specials.filter((s) => !s.done);
+  }
+
+  chainSpark(from, dmg) {
+    const next = this.enemies
+      .filter((e) => e !== from && e.alive && !e.removed && Math.hypot(e.x - from.x, e.y - from.y) < 80)
+      .sort((a, b) => Math.hypot(a.x - from.x, a.y - from.y) - Math.hypot(b.x - from.x, b.y - from.y))[0];
+    if (!next) return;
+    const g = this.add.graphics().setDepth(9600);
+    g.lineStyle(1, 0xffe040, 1);
+    const x0 = from.x, y0 = from.y - 14, x1 = next.x, y1 = next.y - 14;
+    g.beginPath(); g.moveTo(x0, y0);
+    for (let i = 1; i < 5; i++) g.lineTo(x0 + ((x1 - x0) * i) / 5, y0 + ((y1 - y0) * i) / 5 + (Math.random() - 0.5) * 8);
+    g.lineTo(x1, y1); g.strokePath();
+    this.tweens.add({ targets: g, alpha: 0, duration: 220, onComplete: () => g.destroy() });
+    if (next.takeHit({ x: from.x, y: from.y }, { dmg, stun: 250, push: 6 })) this.noteTarget(next);
+  }
+
   stageClear() {
     this.phase = 'clear';
     this.phaseT = 0;
@@ -713,6 +1024,15 @@ export class GameScene extends Phaser.Scene {
       this.player.setState('idle');
       this.startEvolution(this.evoQueue.shift());
     }
+    if (this.menu) {
+      this.updateMenu();
+      this.player.render();
+      for (const e of this.enemies) e.render();
+      this.updateBackground();
+      this.updateHud();
+      this.panel.setVisible(false);
+      return;
+    }
     if (this.evolution) {
       this.updateEvolution(delta);
       for (const e of this.enemies) e.render();
@@ -731,6 +1051,8 @@ export class GameScene extends Phaser.Scene {
       this.updateSeeds(dt);
       this.updateEnemyShots(dt);
       this.updateClouds(dt);
+      this.updateSpecials(dt);
+      if (this.phase === 'play') this.updateNpcs(dt);
       this.updateDirector(dt);
       this.updateWild(dt);
       this.updatePendingWild(dt);

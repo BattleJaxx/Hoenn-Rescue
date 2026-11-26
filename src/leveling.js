@@ -9,6 +9,9 @@ export const SPECIES = {
   wurmple:   { name: 'WURMPLE',   hp: 45, atk: 45, spa: 20,  exp: 56 },
   shroomish: { name: 'SHROOMISH', hp: 60, atk: 40, spa: 40,  exp: 65 },
   silcoon:   { name: 'SILCOON',   hp: 50, atk: 35, spa: 25,  exp: 71 },
+  shedinja:  { name: 'SHEDINJA',  hp: 1,  atk: 90, spa: 30,  exp: 95 },
+  smeargle:  { name: 'SMEARGLE',  hp: 55, atk: 20, spa: 20,  exp: 106 },
+  spinda:    { name: 'SPINDA',    hp: 60, atk: 60, spa: 60,  exp: 85 },
 };
 
 // Evolution line and the level each form is reached at (mainline levels)
@@ -35,7 +38,8 @@ export function expForLevel(L, growth = 'mediumSlow') {
 // EXP for knocking out a Pokémon (Gen 3): base yield x level / 7, x1.5 if it belongs to a trainer
 export function expYield(species, level, trainer) {
   const base = Math.floor((SPECIES[species].exp * level) / 7);
-  return Math.floor(base * (trainer ? 1.5 : 1));
+  const mult = trainer === 'ace' ? 2 : trainer ? 1.5 : 1; // Ace Trainers give double
+  return Math.floor(base * mult);
 }
 
 // In-game numbers are scaled from the real stats so a Lv5 Treecko matches Milestone 1's tuning:

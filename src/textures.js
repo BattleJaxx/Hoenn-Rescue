@@ -216,6 +216,26 @@ export function makeTextures(scene) {
     ctx.fillRect(3, 2, 4, 1);
   });
 
+  // Smeargle's paint blob
+  canvasTex(scene, 'paint', 6, 5, (ctx) => {
+    ctx.fillStyle = '#c03070';
+    ctx.fillRect(1, 0, 4, 5); ctx.fillRect(0, 1, 6, 3);
+    ctx.fillStyle = '#ff70c0';
+    ctx.fillRect(1, 1, 4, 3);
+    ctx.fillStyle = '#ffd0ea';
+    ctx.fillRect(2, 1, 1, 1);
+  });
+
+  // Rock Slide boulder
+  canvasTex(scene, 'rock', 10, 9, (ctx) => {
+    ctx.fillStyle = '#4a3a2a';
+    ctx.fillRect(2, 0, 6, 9); ctx.fillRect(0, 2, 10, 5); ctx.fillRect(1, 1, 8, 7);
+    ctx.fillStyle = '#8a7058';
+    ctx.fillRect(2, 1, 6, 6); ctx.fillRect(1, 2, 8, 4);
+    ctx.fillStyle = '#b89878';
+    ctx.fillRect(2, 2, 3, 2);
+  });
+
   // Sparkle under dropped items
   canvasTex(scene, 'glint', 7, 7, (ctx) => {
     ctx.fillStyle = '#ffffff';

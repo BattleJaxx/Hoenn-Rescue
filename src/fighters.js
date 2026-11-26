@@ -5,6 +5,7 @@ import {
 import { input } from './input.js';
 import { effects } from './items.js';
 import { MOVES } from './config.js';
+import { MOVES_DEF, TYPE_TINT } from './moves.js';
 import {
   SPECIES, EVOLUTIONS, START_LEVEL, MAX_LEVEL, expForLevel, playerStats, enemyScale,
 } from './leveling.js';
@@ -42,6 +43,10 @@ export class Fighter {
     this.gravity = GRAVITY;
     this.damageTaken = 1;   // multiplier, e.g. Silcoon's Harden
     this.koReported = false;
+    this.vulns = {};        // defence drops from moves like Rock Smash and Crunch
+    this.slowedT = 0;       // paralysed/slowed by Body Slam, Bulldoze
+    this.poisonT = 0;
+    this.frozenT = 0;
 
     this.shadow = scene.add.image(x, y, 'shadow').setDepth(5).setScale(1.1, 1);
     this.sprite = scene.add.sprite(x, y, key, SIDE_A)
@@ -93,7 +98,7 @@ export class Fighter {
       return 'blocked';
     }
 
-    let dmg = atk.dmg * this.damageTaken;
+    let dmg = atk.dmg * (atk.pierce ? 1 : this.damageTaken) * this.vulnMult;
     if (this.modifyIncoming) {
       dmg = this.modifyIncoming(dmg, atk);
       if (dmg === null) return 'miss';
@@ -104,10 +109,11 @@ export class Fighter {
     if (!atk.noStagger || this.hp <= 0) {
       this.facing = -dir;
       if (this.hp <= 0 || atk.knockdown || this.airborne) {
-        this.launch(dir);
+        this.launch(dir, atk.launchHigh);
       } else {
         this.vx = dir * (atk.push || 20) * 3;
         this.stun = atk.stun || 250;
+        if (atk.freeze) this.frozenT = this.stun;
         this.setState('hurt');
       }
     }
@@ -125,10 +131,10 @@ export class Fighter {
     this.reportKO();
   }
 
-  launch(dir) {
+  launch(dir, high) {
     this.gravity = GRAVITY;
-    this.vx = dir * 95;
-    this.vz = 150;
+    this.vx = dir * (high ? 40 : 95);
+    this.vz = high ? 240 : 150;
     this.z = Math.max(this.z, 1);
     this.setState('launched');
   }
@@ -168,8 +174,36 @@ export class Fighter {
     }
   }
 
+  get vulnMult() {
+    let m = 1;
+    for (const v of Object.values(this.vulns)) if (v.t > 0) m += v.stacks * v.amount;
+    return m;
+  }
+
+  addVuln(key, amount, ms, maxStacks) {
+    const prev = this.vulns[key];
+    const stacks = Math.min(maxStacks, (prev && prev.t > 0 ? prev.stacks : 0) + 1);
+    this.vulns[key] = { stacks, amount, t: ms };
+  }
+
+  slowFor(ms) { this.slowedT = Math.max(this.slowedT, ms); }
+
+  poison(total, ms) {
+    this.poisonT = ms;
+    this.poisonRate = total / (ms / 1000);
+    this.poisonAcc = 0;
+  }
+
   tickTimers(dt) {
     const ms = dt * 1000;
+    for (const v of Object.values(this.vulns)) v.t -= ms;
+    this.slowedT = Math.max(0, this.slowedT - ms);
+    this.frozenT = Math.max(0, this.frozenT - ms);
+    if (this.poisonT > 0 && this.alive) {
+      this.poisonT -= ms;
+      this.poisonAcc += this.poisonRate * dt;
+      if (this.poisonAcc >= 1) { this.chip(Math.floor(this.poisonAcc)); this.poisonAcc %= 1; }
+    }
     this.t += ms;
     this.flash = Math.max(0, this.flash - ms);
     this.blockFlash = Math.max(0, (this.blockFlash || 0) - ms);
@@ -206,8 +240,12 @@ export class Fighter {
     else if (this.blockFlash > 0) s.setTintFill(0x9fc4ff);
     else if (this.state === 'block' && !drawn) s.setTint(0x9fc4ff);
     else if (this.telegraph) s.setTint(Math.floor(this.t / 60) % 2 ? 0xffe070 : 0xffffff);
+    else if (this.frozenT > 0) s.setTint(0xa0f0ff);
+    else if (this.focusGlow) s.setTint(Math.floor(this.t / 70) % 2 ? 0xffb070 : 0xffffff);
     else if (this.glowT > 0) s.setTint(Math.floor(this.glowT / 80) % 2 ? 0xfff6a0 : 0xffffff);
     else if (this.tint) s.setTint(this.tint);
+    else if (this.poisonT > 0) s.setTint(0xe0a0f0);
+    else if (this.slowedT > 0) s.setTint(0xfff090);
     else s.clearTint();
 
     // Blink while invulnerable after getting up, or while fading out when dead
@@ -263,6 +301,12 @@ export class Player extends Fighter {
     this.furyStacks = 0;
     this.furyT = 0;
     this.glowT = 0;
+    this.powerStacks = 0;  // Power-Up Punch
+    this.powerT = 0;
+    this.drops = { atk: 0, def: 0, spe: 0 }; // Superpower / Close Combat / Hammer Arm, ms left
+    this.speedBoostT = 0;  // Flame Charge
+    this.confuseT = 0;     // Spinda's Teeter Dance
+    this.lastAttack = 'none'; // what Smeargle sketches
     this.recalcStats(true);
   }
 
@@ -307,6 +351,28 @@ export class Player extends Fighter {
     this.recalcStats(false); // Macho Brace raises max HP
   }
 
+  healFlat(amount) {
+    if (!this.alive || amount <= 0) return;
+    this.hp = Math.min(this.maxHp, this.hp + amount);
+    this.scene.floatText(this.x, this.y - 40, `+${Math.max(1, Math.round(amount))}`, '#7cff7c');
+  }
+
+  addPowerStack() {
+    this.powerStacks = Math.min(5, this.powerStacks + 1);
+    this.powerT = 6000;
+  }
+
+  statDrop(stat, ms) {
+    this.drops[stat] = ms / effects.statDropSpeed(this.items);
+    const label = { atk: 'ATTACK', def: 'DEFENCE', spe: 'SPEED' }[stat];
+    this.scene.floatText(this.x, this.y - 48, `${label} FELL`, '#c8c8ff');
+  }
+
+  confuse(ms) {
+    this.confuseT = ms / effects.statDropSpeed(this.items);
+    this.scene.floatText(this.x, this.y - 40, 'CONFUSED', '#ff9fd0');
+  }
+
   heal(frac) {
     if (!this.alive || frac <= 0) return;
     const amount = this.maxHp * frac;
@@ -317,6 +383,8 @@ export class Player extends Fighter {
   get speedMult() {
     let m = effects.machoSpeed(this.items);
     if (this.slowT > 0) m *= 0.55;
+    if (this.drops.spe > 0) m *= 0.7;
+    if (this.speedBoostT > 0) m *= 1.5;
     if (this.ejectT > 0) m *= 1 + this.ejectT / this.ejectDur; // +100% fading to 0
     return m;
   }
@@ -335,6 +403,8 @@ export class Player extends Fighter {
       m *= 1 + MOVES.furyCutter.perStack * this.furyStacks;
     }
     if (this.upgrades.heavy === 'leafBlade' && atkName === 'heavy') m *= MOVES.leafBlade.dmgMult;
+    m *= 1 + 0.06 * this.powerStacks;
+    if (this.drops.atk > 0) m *= 0.7;
     return m;
   }
 
@@ -344,6 +414,7 @@ export class Player extends Fighter {
       return null;
     }
     dmg /= effects.machoStat(this.items);
+    if (this.drops.def > 0) dmg *= 1.3;
     const flat = effects.flatReduce(this.items);
     if (flat) dmg = Math.max(1, dmg - flat);
     return dmg;
@@ -351,6 +422,8 @@ export class Player extends Fighter {
 
   onHurt(atk) {
     this.furyStacks = 0;
+    this.focusGlow = false;
+    if (atk && atk.confuse) this.confuse(atk.confuse);
     const secs = effects.ejectSeconds(this.items);
     if (secs > 0) {
       this.ejectDur = secs * 1000;
@@ -375,12 +448,28 @@ export class Player extends Fighter {
   // ----- Combat ----------------------------------------------------------
   startAttack(name) {
     this.atkName = name;
-    this.atk = { ...ATTACKS[name], dmg: ATTACKS[name].dmg * this.outgoing(name) };
-    // Leaf Blade: chance of a critical hit
-    if (name === 'heavy' && this.upgrades.heavy === 'leafBlade' && Math.random() < MOVES.leafBlade.critChance) {
-      this.atk.dmg *= MOVES.leafBlade.critMult;
-      this.atk.crit = true;
-    }
+    this.lastAttack = name === 'heavy' ? 'heavy' : 'light';
+    const slot = name === 'heavy' ? 'heavy' : 'light';
+    const moveId = this.upgrades[slot];
+    const mv = MOVES_DEF[moveId];
+    const a = { ...ATTACKS[name] };
+    if (mv && mv.build) mv.build(a, name);
+    // Arm Thrust: the extra strikes before the finisher don't knock down
+    if (moveId === 'armThrust' && name === 'light3' && this.chainN < 4) a.knockdown = false;
+    a.dmg *= this.outgoing(name);
+    // Critical hits: Leaf Blade, Shadow Claw
+    const crit = a.crit || (name === 'heavy' && moveId === 'leafBlade'
+      ? { chance: MOVES.leafBlade.critChance, mult: MOVES.leafBlade.critMult } : null);
+    a.crit = false;
+    if (crit && Math.random() < crit.chance) { a.dmg *= crit.mult; a.crit = true; }
+    a.onHit = mv && mv.onHit;
+    a.tint = mv ? TYPE_TINT[mv.type] : null;
+    if (a.speedBoost) this.speedBoostT = a.speedBoost;
+    this.atk = a;
+    this.hitIdx = 0;
+    this.spawned = false;
+    this.recoiled = false;
+    this.focusGlow = !!a.focus;
     this.hitSet = new Set();
     this.queued = null;
     this.setState('attack');
@@ -392,6 +481,11 @@ export class Player extends Fighter {
     this.slowT = Math.max(0, this.slowT - ms);
     this.ejectT = Math.max(0, this.ejectT - ms);
     this.spaDropT = Math.max(0, this.spaDropT - ms);
+    this.powerT = Math.max(0, this.powerT - ms);
+    if (this.powerT <= 0) this.powerStacks = 0;
+    for (const k of Object.keys(this.drops)) this.drops[k] = Math.max(0, this.drops[k] - ms);
+    this.speedBoostT = Math.max(0, this.speedBoostT - ms);
+    this.confuseT = Math.max(0, this.confuseT - ms);
     this.glowT = Math.max(0, this.glowT - ms);
     this.furyT = Math.max(0, this.furyT - ms);
     if (this.furyT <= 0) this.furyStacks = 0;
@@ -406,8 +500,10 @@ export class Player extends Fighter {
     if (this.updateDamageStates(dt, landed)) return;
 
     const I = input;
-    const dirX = (I.held.right ? 1 : 0) - (I.held.left ? 1 : 0);
-    const dirY = (I.held.down ? 1 : 0) - (I.held.up ? 1 : 0);
+    // Confusion swaps the directions
+    const conf = this.confuseT > 0 ? -1 : 1;
+    const dirX = conf * ((I.held.right ? 1 : 0) - (I.held.left ? 1 : 0));
+    const dirY = conf * ((I.held.down ? 1 : 0) - (I.held.up ? 1 : 0));
     const spd = this.speedMult;
 
     switch (this.state) {
@@ -418,13 +514,19 @@ export class Player extends Fighter {
           this.scene.takePickup(this.scene.hoverPickup);
           break;
         }
+        // Next to someone on the grass bank: Light talks to them
+        if (I.pressed.light && this.scene.hoverNpc) {
+          this.scene.talkTo(this.scene.hoverNpc);
+          break;
+        }
         if (I.pressed.special && this.energy >= PLAYER.specialCost) {
           this.energy -= PLAYER.specialCost;
           this.seedsFired = 0;
+          this.lastAttack = 'special';
           this.setState('special');
           break;
         }
-        if (I.pressed.light) { this.startAttack('light1'); break; }
+        if (I.pressed.light) { this.chainN = 0; this.startAttack('light1'); break; }
         if (I.pressed.heavy) { this.startAttack('heavy'); break; }
         if (I.pressed.jump) {
           // Air Balloon: same height, longer airtime
@@ -434,6 +536,7 @@ export class Player extends Fighter {
           this.vx = dirX * PLAYER.speedX * spd;
           this.z = 1;
           this.airAtk = null;
+          this.lastAttack = 'jump';
           this.setState('jump');
           break;
         }
@@ -481,22 +584,44 @@ export class Player extends Fighter {
         if (this.t < tActive) {
           this.offsetX = -this.facing * (this.atkName === 'heavy' ? 3 : 1); // wind-up
         } else if (this.t < tRecover) {
+          this.focusGlow = false;
           this.offsetX = this.facing * a.lunge;
           const isLight = this.atkName.startsWith('light');
-          const upgraded = (isLight && this.upgrades.light) || (!isLight && this.upgrades.heavy);
-          this.showSlash(a.slashScale, upgraded ? 0x9cff6a : null);
-          const landed = this.scene.meleeHit(this, a, this.hitSet);
+          if (a.dash) this.x += this.facing * a.dash * dt;
+          // Multi-hit moves can hit the same enemy again each beat
+          if (a.hits > 1) {
+            const idx = Math.floor((this.t - tActive) / (a.active / a.hits));
+            if (idx !== this.hitIdx) { this.hitIdx = idx; this.hitSet = new Set(); }
+          }
+          let landed = 0;
+          if (a.spawn) {
+            if (!this.spawned) { this.scene.spawnMove(a.spawn, this, a); this.spawned = true; }
+          } else {
+            this.showSlash(a.slashScale, a.tint);
+            // Multi-hit moves only knock down on their last hit, so every hit can land
+            const hitAtk = a.hits > 1 && a.knockdown && this.hitIdx < a.hits - 1 ? { ...a, knockdown: false, stun: 300 } : a;
+            landed = this.scene.meleeHit(this, hitAtk, this.hitSet);
+          }
+          if (landed && a.recoil && !this.recoiled) {
+            this.recoiled = true;
+            this.hp = Math.max(1, this.hp - a.dmg * a.recoil);
+            this.flash = 60;
+          }
           if (landed && isLight && this.upgrades.light === 'furyCutter') {
             this.furyStacks = Math.min(MOVES.furyCutter.maxStacks, this.furyStacks + 1);
             this.furyT = MOVES.furyCutter.window;
           }
         } else {
           this.offsetX = this.facing * Math.max(0, a.lunge - (this.t - tRecover) / 30);
-          // Light chain: L, L, L
-          const next = { light1: 'light2', light2: 'light3' }[this.atkName];
-          if (this.queued === 'light' && next) { this.startAttack(next); break; }
+          // Light chain: L, L, L (Arm Thrust: up to 5)
+          let next = { light1: 'light2', light2: 'light3' }[this.atkName];
+          if (this.upgrades.light === 'armThrust' && this.atkName === 'light3' && this.chainN < 4) next = 'light3';
+          if (this.queued === 'light' && next) { this.chainN = (this.chainN || 0) + 1; this.startAttack(next); break; }
         }
-        if (this.t >= tEnd) this.setState('idle');
+        if (this.t >= tEnd) {
+          if (a.selfDrop) this.statDrop(a.selfDrop, 6000);
+          this.setState('idle');
+        }
         break;
       }
 
@@ -622,7 +747,7 @@ export class Enemy extends Fighter {
     const ddy = ty - this.y;
     const d = Math.hypot(ddx, ddy);
     if (d < 2) return true;
-    const step = Math.min(d, speed * dt);
+    const step = Math.min(d, speed * (this.slowedT > 0 ? 0.5 : 1) * dt);
     this.x += (ddx / d) * step;
     this.y += (ddy / d) * step;
     this.moving = true;
