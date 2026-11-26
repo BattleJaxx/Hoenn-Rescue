@@ -552,6 +552,7 @@ export class GameScene extends Phaser.Scene {
         const npc = this.aceNpc;
         this.waveState = 'choosing';
         npc.say('Amazing! Take these!', 1600);
+        p.heal(effects.waveHeal(p.items)); // Leftovers
         this.time.delayedCall(700, () => {
           this.dropItems(npc.x, ACE_ITEMS, () => {
             this.waveState = 'none';

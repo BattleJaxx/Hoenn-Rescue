@@ -50,7 +50,7 @@ export const ITEMS = {
   },
   leftovers: {
     name: 'LEFTOVERS', first: 10, per: 5,
-    desc: (v) => `Heal ${pct(v)} of max HP after each grunt battle`,
+    desc: (v) => `Heal ${pct(v)} of max HP after each trainer battle`,
   },
   wise_glasses: {
     name: 'WISE GLASSES', first: 5, per: 5,
