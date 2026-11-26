@@ -4,6 +4,10 @@ import {
 } from './config.js';
 import { input } from './input.js';
 import { effects } from './items.js';
+import { MOVES } from './config.js';
+import {
+  SPECIES, EVOLUTIONS, START_LEVEL, MAX_LEVEL, expForLevel, playerStats, enemyScale,
+} from './leveling.js';
 
 export const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 export const sign = (v) => (v < 0 ? -1 : 1);
@@ -176,7 +180,7 @@ export class Fighter {
     const s = this.sprite;
     if (this.moving) this.walkT += this.scene.frameDt;
     else this.walkT = 0;
-    const drawn = !!this.frameFor; // has a hand-drawn action sheet
+    const drawn = !!this.frameFor && this.useSheet !== false; // has a hand-drawn action sheet
 
     let frame;
     let angle = 0;
@@ -202,6 +206,7 @@ export class Fighter {
     else if (this.blockFlash > 0) s.setTintFill(0x9fc4ff);
     else if (this.state === 'block' && !drawn) s.setTint(0x9fc4ff);
     else if (this.telegraph) s.setTint(Math.floor(this.t / 60) % 2 ? 0xffe070 : 0xffffff);
+    else if (this.glowT > 0) s.setTint(Math.floor(this.glowT / 80) % 2 ? 0xfff6a0 : 0xffffff);
     else if (this.tint) s.setTint(this.tint);
     else s.clearTint();
 
@@ -216,7 +221,8 @@ export class Fighter {
     this.shadow.setPosition(Math.round(this.x), Math.round(this.y)).setScale(sh, 1);
   }
 
-  showSlash(scale) {
+  showSlash(scale, tint) {
+    if (tint) this.slash.setTint(tint); else this.slash.clearTint();
     this.slash
       .setVisible(true)
       .setScale(scale || 1)
@@ -242,23 +248,63 @@ export class Fighter {
 export class Player extends Fighter {
   constructor(scene, x, y) {
     super(scene, 'treecko_actions', x, y, PLAYER.hp, 'TREECKO');
-    this.baseMaxHp = PLAYER.hp;
+    this.form = 'treecko';
+    this.useSheet = true;  // hand-drawn action sheet (Treecko only, so far)
+    this.level = START_LEVEL;
+    this.exp = expForLevel(START_LEVEL);
+    this.upgrades = {};    // light: 'furyCutter' | heavy: 'leafBlade' | special: 'leafStorm'
     this.energy = 0;
     this.queued = null;
     this.items = {};       // item id -> stacks
-    this.exp = 0;
     this.slowT = 0;        // String Shot slow, ms left
     this.ejectT = 0;       // Eject Button boost, ms left
     this.ejectDur = 1;
+    this.spaDropT = 0;     // Leaf Storm's Sp. Atk drop, ms left
+    this.furyStacks = 0;
+    this.furyT = 0;
+    this.glowT = 0;
+    this.recalcStats(true);
+  }
+
+  // ----- Level, stats and evolution ----------------------------------------
+  recalcStats(fill) {
+    this.stats = playerStats(this.form, this.level);
+    const newMax = this.stats.maxHp * effects.machoStat(this.items);
+    // Keep the HP gained (level up, evolution, Macho Brace), like the mainline games
+    this.hp = fill ? newMax : this.hp + (newMax - this.maxHp);
+    this.maxHp = newMax;
+  }
+
+  get expToNext() { return expForLevel(this.level + 1) - expForLevel(this.level); }
+  get expIntoLevel() { return this.exp - expForLevel(this.level); }
+
+  gainExp(n) {
+    this.exp += n;
+    while (this.level < MAX_LEVEL && this.exp >= expForLevel(this.level + 1)) this.levelUp();
+  }
+
+  levelUp() {
+    this.level++;
+    if (this.alive) this.recalcStats(false);
+    this.glowT = 700;
+    this.scene.floatText(this.x, this.y - 50, `LEVEL UP! Lv${this.level}`, '#fff6a0');
+    const evo = EVOLUTIONS[this.form];
+    if (evo && this.level >= evo.level) this.scene.queueEvolution(evo.into);
+  }
+
+  evolve(into) {
+    this.form = into;
+    this.name = SPECIES[into].name;
+    this.useSheet = false;   // no hand-drawn sheet for Grovyle/Sceptile yet: follower sprite
+    this.sprite.setTexture(into);
+    this.recalcStats(false);
+    this.hp = this.maxHp;    // evolving fully heals, as a reward
   }
 
   // ----- Items ---------------------------------------------------------
   addItem(id) {
     this.items[id] = (this.items[id] || 0) + 1;
-    // Macho Brace raises max HP; heal by the amount it went up
-    const newMax = this.baseMaxHp * effects.machoStat(this.items);
-    this.hp += newMax - this.maxHp;
-    this.maxHp = newMax;
+    this.recalcStats(false); // Macho Brace raises max HP
   }
 
   heal(frac) {
@@ -275,11 +321,20 @@ export class Player extends Fighter {
     return m;
   }
 
-  // Damage multiplier for our attacks
+  // Damage multiplier for our attacks: level stats, items and move upgrades
   outgoing(atkName) {
     let m = effects.machoStat(this.items);
+    const special = atkName === 'seed' || atkName === 'leafStorm';
+    m *= special ? this.stats.spaMult : this.stats.atkMult;
+    if (special) {
+      m *= effects.specialMult(this.items);
+      if (this.spaDropT > 0) m *= MOVES.leafStorm.spaDrop;
+    }
     if (atkName === 'light3') m *= effects.finisherMult(this.items);
-    if (atkName === 'seed') m *= effects.specialMult(this.items);
+    if (this.upgrades.light === 'furyCutter' && atkName.startsWith('light')) {
+      m *= 1 + MOVES.furyCutter.perStack * this.furyStacks;
+    }
+    if (this.upgrades.heavy === 'leafBlade' && atkName === 'heavy') m *= MOVES.leafBlade.dmgMult;
     return m;
   }
 
@@ -295,6 +350,7 @@ export class Player extends Fighter {
   }
 
   onHurt(atk) {
+    this.furyStacks = 0;
     const secs = effects.ejectSeconds(this.items);
     if (secs > 0) {
       this.ejectDur = secs * 1000;
@@ -320,6 +376,11 @@ export class Player extends Fighter {
   startAttack(name) {
     this.atkName = name;
     this.atk = { ...ATTACKS[name], dmg: ATTACKS[name].dmg * this.outgoing(name) };
+    // Leaf Blade: chance of a critical hit
+    if (name === 'heavy' && this.upgrades.heavy === 'leafBlade' && Math.random() < MOVES.leafBlade.critChance) {
+      this.atk.dmg *= MOVES.leafBlade.critMult;
+      this.atk.crit = true;
+    }
     this.hitSet = new Set();
     this.queued = null;
     this.setState('attack');
@@ -330,6 +391,10 @@ export class Player extends Fighter {
     const ms = dt * 1000;
     this.slowT = Math.max(0, this.slowT - ms);
     this.ejectT = Math.max(0, this.ejectT - ms);
+    this.spaDropT = Math.max(0, this.spaDropT - ms);
+    this.glowT = Math.max(0, this.glowT - ms);
+    this.furyT = Math.max(0, this.furyT - ms);
+    if (this.furyT <= 0) this.furyStacks = 0;
     this.tint = this.slowT > 0 ? 0xd8d8ff : null;
 
     const landed = this.physics(dt);
@@ -417,8 +482,14 @@ export class Player extends Fighter {
           this.offsetX = -this.facing * (this.atkName === 'heavy' ? 3 : 1); // wind-up
         } else if (this.t < tRecover) {
           this.offsetX = this.facing * a.lunge;
-          this.showSlash(a.slashScale);
-          this.scene.meleeHit(this, a, this.hitSet);
+          const isLight = this.atkName.startsWith('light');
+          const upgraded = (isLight && this.upgrades.light) || (!isLight && this.upgrades.heavy);
+          this.showSlash(a.slashScale, upgraded ? 0x9cff6a : null);
+          const landed = this.scene.meleeHit(this, a, this.hitSet);
+          if (landed && isLight && this.upgrades.light === 'furyCutter') {
+            this.furyStacks = Math.min(MOVES.furyCutter.maxStacks, this.furyStacks + 1);
+            this.furyT = MOVES.furyCutter.window;
+          }
         } else {
           this.offsetX = this.facing * Math.max(0, a.lunge - (this.t - tRecover) / 30);
           // Light chain: L, L, L
@@ -430,6 +501,16 @@ export class Player extends Fighter {
       }
 
       case 'special': {
+        if (this.upgrades.special === 'leafStorm') {
+          // Leaf Storm: one big volley, then Sp. Atk drops (Clear Amulet shortens the drop)
+          if (!this.seedsFired && this.t >= 120) {
+            this.scene.fireLeafStorm(this);
+            this.seedsFired = 1;
+            this.spaDropT = MOVES.leafStorm.dropTime / effects.statDropSpeed(this.items);
+          }
+          if (this.t > 620) this.setState('idle');
+          break;
+        }
         // Bullet Seed: a burst of four seeds
         const times = [90, 160, 230, 300];
         while (this.seedsFired < times.length && this.t >= times[this.seedsFired]) {
@@ -506,10 +587,16 @@ export class Player extends Fighter {
 // ---------------------------------------------------------------------------
 export class Enemy extends Fighter {
   constructor(scene, key, x, y, cfg) {
-    super(scene, key, x, y, cfg.hp, cfg.name);
+    // Config numbers are tuned for Lv5; scale HP and damage to this one's level
+    const level = cfg.level || 5;
+    const scale = enemyScale(cfg.species, level);
+    super(scene, key, x, y, cfg.hp * scale.hp, cfg.name);
     this.cfg = cfg;
+    this.species = cfg.species;
+    this.level = level;
+    this.dmgMult = scale.dmg;
     this.wild = !!cfg.wild;
-    this.exp = cfg.exp || 10;
+    this.fromGrunt = !!cfg.fromGrunt;
     this.token = false;
     this.slotY = (Math.random() - 0.5) * 30;
     this.slotX = 54 + Math.random() * 30;
@@ -595,7 +682,7 @@ export class Enemy extends Fighter {
 // ---------------------------------------------------------------------------
 export class Poochyena extends Enemy {
   constructor(scene, x, y, opts = {}) {
-    super(scene, 'poochyena_actions', x, y, { ...POOCHYENA, name: 'POOCHYENA', exp: 12, ...opts });
+    super(scene, 'poochyena_actions', x, y, { ...POOCHYENA, name: 'POOCHYENA', species: 'poochyena', ...opts });
   }
 
   // Pick a frame from the hand-drawn sheet (2 columns, rows listed in art/templates/README.md)

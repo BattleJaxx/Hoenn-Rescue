@@ -206,6 +206,16 @@ export function makeTextures(scene) {
     ctx.fillRect(1, 1, 1, 1);
   });
 
+  // Leaf Storm leaf
+  canvasTex(scene, 'leafstorm', 9, 5, (ctx) => {
+    ctx.fillStyle = '#2d6a1b';
+    ctx.fillRect(1, 1, 7, 3); ctx.fillRect(0, 2, 9, 1);
+    ctx.fillStyle = '#7cd35a';
+    ctx.fillRect(2, 1, 5, 2);
+    ctx.fillStyle = '#d8ffb0';
+    ctx.fillRect(3, 2, 4, 1);
+  });
+
   // Sparkle under dropped items
   canvasTex(scene, 'glint', 7, 7, (ctx) => {
     ctx.fillStyle = '#ffffff';

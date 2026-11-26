@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import {
-  VIEW_W, VIEW_H, GROUND_TOP, GROUND_BOTTOM, WORLD_W, WAVES, MAX_ATTACKERS, PLAYER, ATTACKS, WILD,
+  VIEW_W, VIEW_H, GROUND_TOP, GROUND_BOTTOM, WORLD_W, WAVES, MAX_ATTACKERS, PLAYER, ATTACKS, WILD, FEET_Y,
 } from './config.js';
 import { makeTextures } from './textures.js';
 import { Player, Poochyena, sign } from './fighters.js';
@@ -8,6 +8,8 @@ import { WILD_CLASSES, randomLaneY } from './wild.js';
 import { Grunt, Pickup } from './grunt.js';
 import { ITEMS, ITEM_IDS, itemDesc, rollItems, effects } from './items.js';
 import { input } from './input.js';
+import { MOVES } from './config.js';
+import { SPECIES, START_LEVEL, expForLevel, expYield } from './leveling.js';
 
 const FONT = '"Press Start 2P", monospace';
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -33,7 +35,7 @@ export class BootScene extends Phaser.Scene {
     this.load.image('fg-bush', 'assets/fg_bush.png');
     this.load.image('ground', 'assets/ground.png');
     this.load.spritesheet('poochyena', 'assets/poochyena.png', { frameWidth: 32, frameHeight: 32 });
-    for (const m of ['wurmple', 'shroomish', 'silcoon']) {
+    for (const m of ['wurmple', 'shroomish', 'silcoon', 'grovyle', 'sceptile']) {
       this.load.spritesheet(m, `assets/${m}.png`, { frameWidth: 32, frameHeight: 32 });
     }
     this.load.spritesheet('aqua_grunt', 'assets/aqua_grunt.png', { frameWidth: 16, frameHeight: 32 });
@@ -103,6 +105,8 @@ export class GameScene extends Phaser.Scene {
     this.goT = 0;
     this.wildT = Phaser.Math.Between(...WILD.firstDelay);
     this.pendingWild = null;
+    this.evolution = null;
+    this.evoQueue = [];
 
     this.cameras.main.setBounds(0, 0, WORLD_W, VIEW_H);
     this.cameras.main.setRoundPixels(true);
@@ -113,6 +117,7 @@ export class GameScene extends Phaser.Scene {
     this.player.facing = 1;
 
     this.buildHud();
+    this.applyTestLevel();
     this.banner = text(this, VIEW_W / 2, 70, 'STAGE 1', 16, '#ffd23f').setOrigin(0.5).setScrollFactor(0).setDepth(20000);
     this.banner2 = text(this, VIEW_W / 2, 92, 'PETALBURG WOODS', 8).setOrigin(0.5).setScrollFactor(0).setDepth(20000);
   }
@@ -141,9 +146,9 @@ export class GameScene extends Phaser.Scene {
   buildHud() {
     const D = 20000;
     this.hud = this.add.graphics().setScrollFactor(0).setDepth(D);
-    this.add.image(2, 0, 'treecko', 0).setOrigin(0).setScrollFactor(0).setDepth(D + 1);
-    text(this, 32, 3, 'TREECKO', 8).setScrollFactor(0).setDepth(D + 1);
-    this.expText = text(this, 92, 3, '', 8, '#9fd8ff').setScrollFactor(0).setDepth(D + 1);
+    this.portrait = this.add.image(2, 0, 'treecko', 0).setOrigin(0).setScrollFactor(0).setDepth(D + 1);
+    this.nameText = text(this, 32, 3, 'TREECKO', 8).setScrollFactor(0).setDepth(D + 1);
+    this.levelText = text(this, 124, 3, '', 8, '#fff6a0').setOrigin(1, 0).setScrollFactor(0).setDepth(D + 1);
     this.spText = text(this, 128, 17, 'SP', 8, '#9cff6a').setScrollFactor(0).setDepth(D + 1);
     this.enemyName = text(this, VIEW_W - 4, 3, '', 8).setOrigin(1, 0).setScrollFactor(0).setDepth(D + 1);
     this.goArrow = this.add.image(VIEW_W - 22, 70, 'go-arrow').setScrollFactor(0).setDepth(D).setVisible(false);
@@ -163,6 +168,20 @@ export class GameScene extends Phaser.Scene {
     const isTouch = document.body.classList.contains('touch');
     this.panelHint = text(this, VIEW_W - 12, 141, isTouch ? 'L: TAKE' : 'J: TAKE', 8, '#9cff6a').setOrigin(1, 0);
     this.panel.add([bg, this.panelIcon, this.panelName, this.panelDesc, this.panelHint]);
+
+    // Evolution message box
+    this.evoPanel = this.add.container(0, 0).setScrollFactor(0).setDepth(D + 3).setVisible(false);
+    const ebg = this.add.graphics();
+    ebg.fillStyle(0x101830, 0.95).fillRect(6, 116, VIEW_W - 12, 60);
+    ebg.lineStyle(1, 0xffffff, 0.9).strokeRect(6.5, 116.5, VIEW_W - 13, 59);
+    this.evoText = this.add.text(14, 122, '', {
+      fontFamily: FONT, fontSize: '8px', color: '#ffffff', wordWrap: { width: VIEW_W - 28 }, lineSpacing: 4,
+    });
+    this.evoPanel.add([ebg, this.evoText]);
+    this.evoSprite = this.add.sprite(VIEW_W / 2, 104, 'treecko', 0).setOrigin(0.5, FEET_Y)
+      .setScale(3).setScrollFactor(0).setDepth(16000).setVisible(false);
+    this.evoOverlay = this.add.rectangle(0, 0, VIEW_W, VIEW_H, 0x000000, 1).setOrigin(0)
+      .setScrollFactor(0).setDepth(15000).setAlpha(0);
   }
 
   refreshItemRow() {
@@ -172,10 +191,10 @@ export class GameScene extends Phaser.Scene {
     for (const id of ITEM_IDS) {
       const n = this.player.items[id];
       if (!n) continue;
-      const img = this.add.image(x, 34, `item_${id}`).setScale(0.5).setScrollFactor(0).setDepth(20001);
+      const img = this.add.image(x, 37, `item_${id}`).setScale(0.5).setScrollFactor(0).setDepth(20001);
       this.itemRow.push(img);
       if (n > 1) {
-        this.itemRow.push(text(this, x + 3, 33, `${n}`, 8).setScrollFactor(0).setDepth(20002));
+        this.itemRow.push(text(this, x + 3, 36, `${n}`, 8).setScrollFactor(0).setDepth(20002));
       }
       x += n > 1 ? 20 : 14;
     }
@@ -195,13 +214,18 @@ export class GameScene extends Phaser.Scene {
     this.drawBar(g, 32, 13, 92, 5, hpFrac, hpFrac > 0.5 ? 0x58d858 : hpFrac > 0.2 ? 0xf8d030 : 0xf85838);
     this.drawBar(g, 32, 21, 92, 3, p.energy / PLAYER.energyMax, 0x40b8f8);
     g.fillStyle(0xffffff, 1).fillRect(32 + 46, 20, 1, 5); // special cost marker
+    this.drawBar(g, 32, 27, 92, 1, p.expIntoLevel / p.expToNext, 0x58c8f8); // EXP to next level
     const ready = p.energy >= PLAYER.specialCost;
     this.spText.setVisible(ready && Math.floor(this.time.now / 300) % 2 === 0);
-    this.expText.setText(`EXP ${Math.floor(p.exp)}`);
+    this.levelText.setText(`Lv${p.level}`);
+    if (this.nameText.text !== p.name) {
+      this.nameText.setText(p.name);
+      this.portrait.setTexture(p.form, 0);
+    }
 
     const e = this.lastTarget;
     if (e && !e.removed && this.lastTargetT > 0) {
-      this.enemyName.setText(e.wild ? `WILD ${e.name}` : e.name).setVisible(true);
+      this.enemyName.setText(`${e.wild ? 'WILD ' : ''}${e.name} Lv${e.level}`).setVisible(true);
       this.drawBar(g, VIEW_W - 96, 13, 92, 5, e.hp / e.maxHp, 0xf85838);
     } else {
       this.enemyName.setVisible(false);
@@ -240,6 +264,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   meleeHit(attacker, atk, hitSet) {
+    let landed = 0;
     for (const e of this.enemies) {
       if (hitSet.has(e) || !e.alive || e.removed) continue;
       if (!this.overlaps(attacker, e, atk)) continue;
@@ -248,19 +273,22 @@ export class GameScene extends Phaser.Scene {
       hitSet.add(e);
       this.noteTarget(e);
       if (r === 'hit') {
+        landed++;
         this.player.gainEnergy(PLAYER.energyPerHit);
         this.hitstop = atk.knockdown ? 85 : 55;
-        this.spark((attacker.x + e.x) / 2, e.y - e.z - 14);
-        if (atk.shake) this.cameras.main.shake(110, 0.012);
+        this.spark((attacker.x + e.x) / 2, e.y - e.z - 14, atk.crit ? 0xffd23f : 0xffffff);
+        if (atk.crit) this.floatText(e.x, e.y - 40, 'CRITICAL!', '#ffd23f');
+        if (atk.shake || atk.crit) this.cameras.main.shake(110, 0.012);
       }
     }
+    return landed;
   }
 
   enemyHit(enemy, atk, hitSet) {
     const p = this.player;
     if (hitSet.has(p) || !p.alive) return;
     if (!this.overlaps(enemy, p, atk)) return;
-    const r = p.takeHit(enemy, atk);
+    const r = p.takeHit(enemy, { ...atk, dmg: atk.dmg * (enemy.dmgMult || 1) });
     if (!r) return;
     hitSet.add(p);
     if (r === 'hit') {
@@ -280,10 +308,10 @@ export class GameScene extends Phaser.Scene {
 
   onEnemyKO(e) {
     const p = this.player;
-    const gained = e.exp * effects.xpMult(p.items);
-    p.exp += gained;
-    this.floatText(e.x, e.y - 36, `+${Math.round(gained)} EXP`, '#9fd8ff');
+    const gained = Math.floor(expYield(e.species, e.level, e.fromGrunt) * effects.xpMult(p.items));
+    this.floatText(e.x, e.y - 36, `+${gained} EXP`, '#9fd8ff');
     p.heal(effects.koHeal(p.items));
+    p.gainExp(gained);
   }
 
   // Silcoon and other obstacles: push a fighter out of their body
@@ -308,9 +336,23 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  fireLeafStorm(p) {
+    const L = MOVES.leafStorm;
+    const atk = { ...ATTACKS.seed, dmg: L.dmg * p.outgoing('leafStorm'), push: 30 };
+    for (let i = 0; i < L.leaves; i++) {
+      const k = L.leaves > 1 ? i / (L.leaves - 1) : 0.5;
+      const img = this.add.image(p.x, p.y, 'leafstorm').setDepth(9400).setFlipX(p.facing < 0);
+      this.seeds.push({
+        img, x: p.x + p.facing * (8 - (i % 3) * 10), y: clamp(p.y + (k - 0.5) * 2 * L.spread, GROUND_TOP, GROUND_BOTTOM),
+        z: p.z + 10 + (i % 4) * 3, dir: p.facing, life: L.life, speed: L.speed + (i % 3) * 25, atk,
+      });
+    }
+    this.cameras.main.shake(160, 0.006);
+  }
+
   updateSeeds(dt) {
     for (const s of this.seeds) {
-      s.x += s.dir * 240 * dt;
+      s.x += s.dir * (s.speed || 240) * dt;
       s.life -= dt;
       for (const e of this.enemies) {
         if (!e.alive || e.removed || s.life <= 0) continue;
@@ -334,7 +376,7 @@ export class GameScene extends Phaser.Scene {
     const img = this.add.image(owner.x, owner.y, texture).setDepth(9400).setFlipX(owner.facing < 0);
     this.enemyShots.push({
       img, x: owner.x + owner.facing * 10, y: owner.y, z: 8, dir: owner.facing,
-      speed: atk.speed, life: atk.life, atk,
+      speed: atk.speed, life: atk.life, atk: { ...atk, dmg: atk.dmg * (owner.dmgMult || 1) },
     });
   }
 
@@ -373,7 +415,7 @@ export class GameScene extends Phaser.Scene {
       const inside = Math.abs(p.x - c.x) < c.S.radiusX && Math.abs(p.y - c.y) < c.S.radiusY && p.z < 20;
       if (inside && c.tickT <= 0 && p.alive) {
         c.tickT = c.S.tick;
-        p.takeHit({ x: c.x, y: c.y }, { dmg: c.S.dmg, unblockable: true, noStagger: true, owner: c.owner });
+        p.takeHit({ x: c.x, y: c.y }, { dmg: c.S.dmg * (c.owner.dmgMult || 1), unblockable: true, noStagger: true, owner: c.owner });
       }
       if (c.life <= 0) c.img.destroy();
     }
@@ -403,7 +445,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ----- Grunt waves and item choice ---------------------------------------
-  startWave(count) {
+  startWave(count, level) {
     this.locked = true;
     this.goT = 0;
     this.waveState = 'fighting';
@@ -412,8 +454,7 @@ export class GameScene extends Phaser.Scene {
       const fromRight = i % 2 === 0;
       const x = fromRight ? this.camX + VIEW_W + 20 + i * 14 : this.camX - 20 - i * 14;
       const y = GROUND_TOP + 6 + Math.random() * (GROUND_BOTTOM - GROUND_TOP - 12);
-      const e = new Poochyena(this, x, y);
-      e.fromGrunt = true;
+      const e = new Poochyena(this, x, y, { level, fromGrunt: true });
       this.enemies.push(e);
     }
   }
@@ -448,7 +489,7 @@ export class GameScene extends Phaser.Scene {
       const target = clamp(p.x - 130, 0, WORLD_W - VIEW_W);
       this.camX = Math.max(this.camX, target); // arcade-style: no scrolling back
       const next = WAVES[this.waveIdx];
-      if (next && p.x >= next.at) this.startWave(next.count);
+      if (next && p.x >= next.at) this.startWave(next.count, next.level);
     } else if (this.waveState === 'fighting') {
       const left = this.enemies.filter((e) => e.fromGrunt && e.alive && !e.removed).length;
       if (left === 0 && this.grunt && this.grunt.state === 'stand') {
@@ -519,11 +560,117 @@ export class GameScene extends Phaser.Scene {
     w.t -= dt * 1000;
     if (w.t > 0) return;
     this.pendingWild = null;
-    const opts = { emerge: true, emergeToY: randomLaneY() };
+    const opts = { emerge: true, emergeToY: randomLaneY(), level: Phaser.Math.Between(...WILD.levels) };
     const e = w.species === 'poochyena'
       ? new Poochyena(this, w.x, w.y, { ...opts, wild: true })
       : new WILD_CLASSES[w.species](this, w.x, w.y, opts);
     this.enemies.push(e);
+  }
+
+  // ----- Evolution -----------------------------------------------------------
+  // Testing aid: ?level=16 starts one EXP short of Lv16, so the first knockout evolves.
+  applyTestLevel() {
+    const want = parseInt(new URLSearchParams(window.location.search).get('level'), 10);
+    if (!want || want <= START_LEVEL + 1) return;
+    const p = this.player;
+    p.level = Math.min(99, want - 1);
+    p.exp = expForLevel(want) - 1;
+    if (p.level >= 16) { p.evolve('grovyle'); this.evoQueue.push('chooseOnly'); }
+    if (p.level >= 36) { p.evolve('sceptile'); p.upgrades.special = 'leafStorm'; }
+    p.recalcStats(true);
+  }
+
+  queueEvolution(into) {
+    if (!this.evoQueue.includes(into)) this.evoQueue.push(into);
+  }
+
+  startEvolution(into) {
+    const p = this.player;
+    const isTouch = document.body.classList.contains('touch');
+    this.evolution = {
+      into, from: p.form, t: 0, stage: into === 'chooseOnly' ? 'choice' : 'anim', isTouch,
+    };
+    this.evoOverlay.setAlpha(0);
+    this.tweens.add({ targets: this.evoOverlay, alpha: 0.6, duration: 300 });
+    p.sprite.setVisible(false);
+    p.shadow.setVisible(false);
+    this.evoSprite.setTexture(p.form, 0).clearTint().setVisible(true);
+    this.evoPanel.setVisible(true);
+    this.panel.setVisible(false);
+    if (into === 'chooseOnly') this.showUpgradeChoice();
+    else this.evoText.setText(`What? ${p.name} is evolving!`);
+  }
+
+  showUpgradeChoice() {
+    const ev = this.evolution;
+    const l = ev.isTouch ? 'L' : 'J';
+    const h = ev.isTouch ? 'H' : 'K';
+    ev.stage = 'choice';
+    this.evoText.setText(
+      `${this.player.name} can upgrade a move:\n`
+      + `${l}: FURY CUTTER (Light) - each light hit in a row hits harder\n`
+      + `${h}: LEAF BLADE (Heavy) - stronger, often critical`,
+    );
+  }
+
+  updateEvolution(delta) {
+    const ev = this.evolution;
+    const p = this.player;
+    ev.t += delta;
+    switch (ev.stage) {
+      case 'anim': {
+        // Flash between the old and new forms, faster and faster
+        const k = Math.min(1, ev.t / 2600);
+        const interval = 320 - 280 * k;
+        const showNew = Math.floor(ev.t / interval) % 2 === 1;
+        this.evoSprite.setTexture(showNew ? ev.into : ev.from, 0).setTintFill(0xffffff);
+        if (ev.t > 2600) {
+          const oldName = p.name;
+          p.evolve(ev.into);
+          this.evoSprite.setTexture(ev.into, 0).clearTint();
+          this.cameras.main.flash(250, 255, 255, 255);
+          this.evoText.setText(`Congratulations! Your ${oldName} evolved into ${p.name}!`);
+          ev.stage = 'evolved';
+          ev.t = 0;
+        }
+        break;
+      }
+      case 'evolved':
+        if (ev.t > 1600) {
+          if (ev.into === 'grovyle' && !p.upgrades.light && !p.upgrades.heavy) {
+            this.showUpgradeChoice();
+          } else if (ev.into === 'sceptile') {
+            p.upgrades.special = 'leafStorm';
+            this.evoText.setText(`${p.name}'s BULLET SEED became LEAF STORM!\nA wide volley of leaves, then Sp. Atk drops for a while.`);
+            ev.stage = 'done';
+            ev.t = 0;
+          } else {
+            ev.stage = 'done';
+            ev.t = 1000;
+          }
+        }
+        break;
+      case 'choice':
+        if (input.pressed.light || input.pressed.heavy) {
+          const fury = input.pressed.light;
+          if (fury) p.upgrades.light = 'furyCutter'; else p.upgrades.heavy = 'leafBlade';
+          this.evoText.setText(`${p.name} learned ${fury ? 'FURY CUTTER' : 'LEAF BLADE'}!`);
+          ev.stage = 'done';
+          ev.t = 0;
+        }
+        break;
+      case 'done':
+        if (ev.t > 1400) {
+          this.tweens.add({ targets: this.evoOverlay, alpha: 0, duration: 250 });
+          this.evoPanel.setVisible(false);
+          this.evoSprite.setVisible(false);
+          p.sprite.setVisible(true);
+          p.shadow.setVisible(true);
+          p.invuln = 800;
+          this.evolution = null;
+        }
+        break;
+    }
   }
 
   stageClear() {
@@ -557,6 +704,21 @@ export class GameScene extends Phaser.Scene {
     if ((this.phase === 'over' || this.phase === 'clear') && this.phaseT > 900
       && (input.anyPressed || input.pressed.start)) {
       this.scene.restart();
+      return;
+    }
+
+    // Evolve once nothing is mid-air or mid-knockdown
+    if (!this.evolution && this.evoQueue.length && this.phase === 'play'
+      && ['idle', 'attack', 'land', 'block', 'hurt', 'special'].includes(this.player.state) && !this.player.airborne) {
+      this.player.setState('idle');
+      this.startEvolution(this.evoQueue.shift());
+    }
+    if (this.evolution) {
+      this.updateEvolution(delta);
+      for (const e of this.enemies) e.render();
+      this.updateBackground();
+      this.updateHud();
+      this.panel.setVisible(false);
       return;
     }
 

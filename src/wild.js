@@ -8,7 +8,7 @@ import { WURMPLE, SHROOMISH, SILCOON, GROUND_TOP, GROUND_BOTTOM } from './config
 // ---------------------------------------------------------------------------
 export class Wurmple extends Enemy {
   constructor(scene, x, y, opts) {
-    super(scene, 'wurmple', x, y, { ...WURMPLE, wild: true, ...opts });
+    super(scene, 'wurmple', x, y, { ...WURMPLE, species: 'wurmple', wild: true, ...opts });
   }
 
   think(dt, p) {
@@ -81,7 +81,7 @@ export class Wurmple extends Enemy {
 // ---------------------------------------------------------------------------
 export class Shroomish extends Enemy {
   constructor(scene, x, y, opts) {
-    super(scene, 'shroomish', x, y, { ...SHROOMISH, wild: true, ...opts });
+    super(scene, 'shroomish', x, y, { ...SHROOMISH, species: 'shroomish', wild: true, ...opts });
     this.cooldown = 1200;
     this.noToken = true;
   }
@@ -125,7 +125,7 @@ export class Shroomish extends Enemy {
 // ---------------------------------------------------------------------------
 export class Silcoon extends Enemy {
   constructor(scene, x, y, opts) {
-    super(scene, 'silcoon', x, y, { ...SILCOON, wild: true, ...opts });
+    super(scene, 'silcoon', x, y, { ...SILCOON, species: 'silcoon', wild: true, ...opts });
     this.damageTaken = SILCOON.hardenTaken;
     this.obstacle = SILCOON.body;
     this.cooldown = 1000;

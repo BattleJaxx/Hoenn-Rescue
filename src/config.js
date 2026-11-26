@@ -14,10 +14,11 @@ export const WORLD_W = 1280;
 export const GRAVITY = 620;             // px/s^2 for jumps and knockdowns
 
 // Wave triggers: when Treecko walks past `at`, the screen locks until the wave is beaten
+// Each wave is an Aqua grunt's team: `count` Poochyena at `level`
 export const WAVES = [
-  { at: 170, count: 2 },
-  { at: 560, count: 3 },
-  { at: 960, count: 4 },
+  { at: 170, count: 2, level: 7 },
+  { at: 560, count: 3, level: 8 },
+  { at: 960, count: 4, level: 9 },
 ];
 export const MAX_ATTACKERS = 2;         // arcade turn-taking: at most this many enemies attack at once
 
@@ -55,6 +56,7 @@ export const WILD = {
   firstDelay: [4000, 8000],     // ms before the first wild encounter can happen
   interval: [6000, 12000],      // ms between encounters (counts twice as fast between waves)
   maxAlive: 2,
+  levels: [5, 6],               // Petalburg Woods wild levels, from the decomp's encounter table
   table: [
     { species: 'poochyena', weight: 30 },
     { species: 'wurmple', weight: 25 },
@@ -85,3 +87,13 @@ export const SILCOON = {
 
 // Grunt waves: XP for clearing, and how long the item choice waits
 export const GRUNT = { name: 'AQUA GRUNT' };
+
+// ----- Evolution move upgrades ----------------------------------------------
+export const MOVES = {
+  // Grovyle choice A: Light attack becomes Fury Cutter. Each light hit that lands in a row hits harder.
+  furyCutter: { perStack: 0.5, maxStacks: 4, window: 1200 },
+  // Grovyle choice B: Heavy attack becomes Leaf Blade. Harder, and often critical.
+  leafBlade: { dmgMult: 1.4, critChance: 0.3, critMult: 2 },
+  // Sceptile: Special becomes Leaf Storm. A wide volley of leaves, then Sp. Atk drops for a while.
+  leafStorm: { leaves: 12, dmg: 6, spread: 20, speed: 230, life: 0.9, spaDrop: 0.6, dropTime: 8000 },
+};
