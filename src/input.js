@@ -52,6 +52,15 @@ class Input {
     const isTouch = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
     if (isTouch) document.body.classList.add('touch');
 
+    // iOS Safari ignores user-scalable=no and can still zoom on quick repeated taps
+    // (e.g. spamming Light) or pinches. Cancelling the touch events themselves stops that;
+    // the game reads pointer events, which still fire.
+    const noZoom = (e) => { if (e.cancelable) e.preventDefault(); };
+    document.addEventListener('touchstart', (e) => { if (e.touches.length > 1) noZoom(e); }, { passive: false });
+    document.addEventListener('touchend', noZoom, { passive: false });
+    document.addEventListener('dblclick', noZoom, { passive: false });
+    for (const g of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(g, noZoom, { passive: false });
+
     // Buttons
     document.querySelectorAll('#buttons .btn').forEach((el) => {
       const name = el.dataset.btn;
