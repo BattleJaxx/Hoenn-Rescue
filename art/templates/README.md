@@ -129,6 +129,61 @@ Silcoon never walks, so it has a hop for jumping out of the grass instead.
 | 7 | down | lying | 650 ms | |
 | 8 | getup | getting up | 260 ms | |
 
+## Ace Trainer Pokémon
+
+All use 48x32 cells with the feet on row 30 at column 24.
+
+### Shedinja: `shedinja_actions.png` (96x256)
+
+Shedinja floats: the game raises it a few pixels and bobs it, so draw it with its base on the feet line.
+
+| Row | Animation | Frames | Timing | Hit reach |
+| --- | --- | --- | --- | --- |
+| 0 | idle | hover 1, hover 2 | loops | |
+| 1 | drift | drift A, drift B | moving, 130 ms each | |
+| 2 | scratch_windup | rear back 1, rear back 2 | 520 ms (flashes yellow) | |
+| 3 | scratch | lunge, HIT | 230 ms dash | 9 px |
+| 4 | recover | open | 1000 ms, the window to hit its back | |
+| 5 | no_effect | shrug | shown when a hit from the front does nothing | |
+| 6 | launched | airborne | knocked out (1 HP) | |
+| 7 | down | fainted | 650 ms, then fades | |
+
+### Smeargle: `smeargle_actions.png` (144x384)
+
+Each "copy" row is Smeargle's version of one of your attacks.
+
+| Row | Animation | Frames | Timing | Hit reach |
+| --- | --- | --- | --- | --- |
+| 0 | idle | idle 1, idle 2 | loops | |
+| 1 | walk | step A, step B | 130 ms each | |
+| 2 | sketch | study, copy | wind-up: 380 ms (600 ms before a heavy) | |
+| 3 | copy_light | swipe A, swipe B, swipe C | three paint swipes, 120 ms each | 10 px |
+| 4 | copy_heavy | raise, SMASH | 140 ms tail swing, knocks down | 13 px |
+| 5 | copy_special | aim, fire | paint blobs, one every 90 ms | projectile |
+| 6 | copy_jump | leap, SLAM | leaps at you; the slam hits both sides | 11 px |
+| 7 | recover | recover | 800–1100 ms | |
+| 8 | hurt | hit | ~250 ms | |
+| 9 | launched | airborne | knocked flying | |
+| 10 | down | lying | 650 ms | |
+| 11 | getup | getting up | 260 ms | |
+
+### Spinda: `spinda_actions.png` (144x320)
+
+The game also sways Spinda side to side while it idles and dances, so the frames don't need to tilt it.
+
+| Row | Animation | Frames | Timing | Hit reach |
+| --- | --- | --- | --- | --- |
+| 0 | idle | wobble 1, wobble 2 | loops | |
+| 1 | walk | stagger A, stagger B | 130 ms each | |
+| 2 | teeter_dance | dance A, dance B, dance C | 1300 ms; confuses you if you're close at the end | |
+| 3 | punch_windup | wind up | 380 ms (flashes yellow) | |
+| 4 | dizzy_punch | lunge, HIT | 170 ms dash; confuses on hit | 8 px |
+| 5 | recover | recover | 600 ms | |
+| 6 | hurt | hit | ~250 ms | |
+| 7 | launched | airborne | knocked flying | |
+| 8 | down | lying | 650 ms | |
+| 9 | getup | getting up | 260 ms | |
+
 ## Effects: `effects/`
 
 | File | Size | Use |

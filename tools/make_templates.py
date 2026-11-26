@@ -261,6 +261,53 @@ SHEETS = {
 }
 
 
+# Ace Trainer Pokémon
+SHEDINJA = [
+    ('idle', ['hover 1', 'hover 2'], 'loops; it floats a little off the ground', None),
+    ('drift', ['drift A', 'drift B'], 'moving; 130 ms per frame', None),
+    ('scratch_windup', ['rear back 1', 'rear back 2'], '520 ms (flashes yellow)', None),
+    ('scratch', ['lunge', 'HIT'], '230 ms dash', 18),
+    ('recover', ['open'], '1000 ms: the window to hit its back', None),
+    ('no_effect', ['shrug'], 'flash when a hit from the front does nothing', None),
+    ('launched', ['airborne'], 'knocked out (it has 1 HP)', None),
+    ('down', ['fainted'], '650 ms, then fades', None),
+]
+
+SMEARGLE = [
+    ('idle', ['idle 1', 'idle 2'], 'loops', None),
+    ('walk', ['step A', 'step B'], '130 ms per frame', None),
+    ('sketch', ['study', 'copy'], 'wind-up before copying you: 380 ms (heavy: 600 ms)', None),
+    ('copy_light', ['swipe A', 'swipe B', 'swipe C'], 'three quick paint swipes, 120 ms each', 20),
+    ('copy_heavy', ['raise', 'SMASH'], '140 ms big tail swing, knocks down', 26),
+    ('copy_special', ['aim', 'fire'], 'paint blobs, one every 90 ms', None),
+    ('copy_jump', ['leap', 'SLAM'], 'leaps at you, slam hits both sides', 22),
+    ('recover', ['recover'], '800-1100 ms', None),
+    ('hurt', ['hit'], '~250 ms', None),
+    ('launched', ['airborne'], 'knocked flying', None),
+    ('down', ['lying'], '650 ms', None),
+    ('getup', ['getting up'], '260 ms', None),
+]
+
+SPINDA = [
+    ('idle', ['wobble 1', 'wobble 2'], 'loops; the game also sways it side to side', None),
+    ('walk', ['stagger A', 'stagger B'], '130 ms per frame', None),
+    ('teeter_dance', ['dance A', 'dance B', 'dance C'], '1300 ms; confuses you if close at the end', None),
+    ('punch_windup', ['wind up'], '380 ms (flashes yellow)', None),
+    ('dizzy_punch', ['lunge', 'HIT'], '170 ms dash; confuses on hit', 16),
+    ('recover', ['recover'], '600 ms', None),
+    ('hurt', ['hit'], '~250 ms', None),
+    ('launched', ['airborne'], 'knocked flying', None),
+    ('down', ['lying'], '650 ms', None),
+    ('getup', ['getting up'], '260 ms', None),
+]
+
+SHEETS.update({
+    'shedinja_actions': ('shedinja', SHEDINJA, (48, 32), (24, 30)),
+    'smeargle_actions': ('smeargle', SMEARGLE, (48, 32), (24, 30)),
+    'spinda_actions': ('spinda', SPINDA, (48, 32), (24, 30)),
+})
+
+
 if __name__ == '__main__' and len(sys.argv) > 3 and sys.argv[3] != 'all':
     os.makedirs(os.path.join(OUT, 'guides'), exist_ok=True)
     for name in sys.argv[3:]:
