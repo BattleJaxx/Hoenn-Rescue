@@ -476,6 +476,9 @@ export class Player extends Fighter {
     const mv = MOVES_DEF[moveId];
     const a = { ...ATTACKS[name] };
     if (mv && mv.build) mv.build(a, name);
+    // Each line attacks at its own tempo (Treecko's line is quickest)
+    const tempo = this.lineCfg.tempo || 1;
+    for (const k of ['startup', 'active', 'recovery']) if (a[k]) a[k] /= tempo;
     // Arm Thrust: the extra strikes before the finisher don't knock down
     if (moveId === 'armThrust' && name === 'light3' && this.chainN < 4) a.knockdown = false;
     a.dmg *= this.outgoing(name);
